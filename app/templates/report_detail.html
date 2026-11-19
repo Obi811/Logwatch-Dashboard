@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Fehlerbericht #{{ report.id }} – LogWatch Dashboard{% endblock %}
+{% block content %}
+<p class="crumbs"><a href="/reports">&larr; Fehlerberichte</a></p>
+<h1>Fehlerbericht #{{ report.id }}</h1>
+
+<div class="statusline">
+  {% if report.status == "offen" %}
+    <span class="badge open big">offen</span>
+  {% else %}
+    <span class="badge closed big">abgeschlossen</span>
+    {% if report.closed_at %}
+      <span class="muted">am {{ report.closed_at.strftime("%d.%m.%Y %H:%M") }}
+        {% if report.closed_by %}von {{ report.closed_by }}{% endif %}</span>
+    {% endif %}
+  {% endif %}
+</div>
+
+<table class="kv">
+  <tr><th>Maschine</th><td><a href="/machines/{{ report.machine_id }}">{{ report.machine_id }}</a></td></tr>
+  <tr><th>Firma / Kunde</th><td>{{ (machine.company if machine else "") or "—" }}</td></tr>
+  <tr><th>Hardware-ID</th><td class="mono">{{ report.hardware_id or "—" }}</td></tr>
+  <tr><th>TeamViewer-ID</th><td>{{ report.teamviewer_id or "—" }}</td></tr>
+  <tr><th>Hostname</th><td>{{ report.hostname or "—" }}</td></tr>
+  <tr><th>Fehlerzeitpunkt</th><td>{{ report.timestamp.strftime("%d.%m.%Y %H:%M:%S") }}</td></tr>
+  <tr><th>Eingang</th><td>{{ report.received_at.strftime("%d.%m.%Y %H:%M:%S") }}</td></tr>
+  <tr><th>Anzahl Fehlerzeilen</th><td>{{ report.error_count }}</td></tr>
+  {% if report.note %}<tr><th>Notiz</th><td>{{ report.note }}</td></tr>{% endif %}
+</table>
+
+<h2>Fehlerzeilen</h2>
+{% if lines %}
+<pre class="loglines">{% for l in lines %}{{ l }}
+{% endfor %}</pre>
+{% else %}
+<p class="muted">Keine Fehlerzeilen übermittelt.</p>
+{% endif %}
+
+<h2>Logdatei</h2>
+{% if report.log_path %}
+  <a class="btn" href="/reports/{{ report.id }}/logfile">Logdatei herunterladen
+    {% if report.log_filename %}({{ report.log_filename }}){% endif %}</a>
+{% else %}
+  <p class="muted">Keine Logdatei hochgeladen.</p>
+{% endif %}
+
+<h2>Aktionen</h2>
+{% if report.status == "offen" %}
+<form method="post" action="/reports/{{ report.id }}/close" class="actionform">
+  <label>Notiz (optional)
+    <input type="text" name="note" placeholder="z.B. Ursache / erledigt durch ...">
+  </label>
+  <button class="btn primary" type="submit">Abschließen</button>
+</form>
+{% else %}
+<form method="post" action="/reports/{{ report.id }}/reopen" class="actionform">
+  <button class="btn" type="submit">Wieder öffnen</button>
+</form>
+{% endif %}
+{% endblock %}

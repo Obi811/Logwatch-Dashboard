@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}Maschine {{ machine.machine_id }} – LogWatch Dashboard{% endblock %}
+{% block content %}
+<p class="crumbs"><a href="/machines">&larr; Maschinen</a></p>
+<h1>Maschine: {{ machine.machine_id }}</h1>
+
+{% if warn %}
+<div class="alert danger">
+  ⚠ <strong>Mögliche Raubkopie:</strong> Für diese Maschinen-ID wurden mehrere
+  unterschiedliche Hardware-IDs gemeldet. Details siehe Hardware-Liste unten.
+</div>
+{% endif %}
+
+<table class="kv">
+  <tr><th>Firma / Kunde</th><td>{{ machine.company or "—" }}</td></tr>
+  <tr><th>Erstmals gesehen</th><td>{{ machine.first_seen.strftime("%d.%m.%Y %H:%M") }}</td></tr>
+  <tr><th>Zuletzt gesehen</th><td>{{ machine.last_seen.strftime("%d.%m.%Y %H:%M") }}</td></tr>
+  {% if machine.notes %}<tr><th>Notizen</th><td>{{ machine.notes }}</td></tr>{% endif %}
+</table>
+
+<h2>Bekannte Hardware ({{ fingerprints|length }})</h2>
+{% if fingerprints %}
+<table class="grid">
+  <thead><tr><th>Hardware-ID</th><th>TeamViewer-ID</th><th>Hostname</th>
+    <th>Erstmals</th><th>Zuletzt</th></tr></thead>
+  <tbody>
+  {% for fp in fingerprints %}
+    <tr>
+      <td class="mono">{{ fp.hardware_id or "—" }}</td>
+      <td>{{ fp.teamviewer_id or "—" }}</td>
+      <td>{{ fp.hostname or "—" }}</td>
+      <td>{{ fp.first_seen.strftime("%d.%m.%Y %H:%M") }}</td>
+      <td>{{ fp.last_seen.strftime("%d.%m.%Y %H:%M") }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="muted">Noch keine Hardware-Informationen.</p>
+{% endif %}
+
+<h2>Fehlerberichte ({{ reports|length }})</h2>
+{% if reports %}
+<table class="grid">
+  <thead><tr><th>Zeit</th><th>Fehler</th><th>Status</th><th></th></tr></thead>
+  <tbody>
+  {% for r in reports %}
+    <tr>
+      <td>{{ r.received_at.strftime("%d.%m.%Y %H:%M") }}</td>
+      <td>{{ r.error_count }} Zeile(n)</td>
+      <td>{% if r.status == "offen" %}<span class="badge open">offen</span>
+          {% else %}<span class="badge closed">abgeschlossen</span>{% endif %}</td>
+      <td><a class="btn ghost" href="/reports/{{ r.id }}">Details</a></td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="muted">Keine Fehlerberichte für diese Maschine.</p>
+{% endif %}
+{% endblock %}

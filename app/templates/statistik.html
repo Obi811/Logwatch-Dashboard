@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Statistik – LogWatch Dashboard{% endblock %}
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+{% endblock %}
+{% block content %}
+<h1>Auswertungen</h1>
+
+<div class="cards">
+  <div class="card"><div class="num">{{ machine_count }}</div><div class="lbl">Maschinen</div></div>
+  <div class="card warn-open"><div class="num">{{ open_count }}</div><div class="lbl">Offene Fehler</div></div>
+  <div class="card ok"><div class="num">{{ closed_count }}</div><div class="lbl">Abgeschlossen</div></div>
+  <div class="card"><div class="num">{{ total_count }}</div><div class="lbl">Fehler gesamt</div></div>
+  <div class="card danger"><div class="num">{{ warn_count }}</div><div class="lbl">Kopier-Warnungen</div></div>
+</div>
+
+<h2>Fehler pro Tag (letzte 30 Tage)</h2>
+<div class="chartbox"><canvas id="errorsPerDay"></canvas></div>
+
+<h2>Top-Maschinen nach Fehleranzahl</h2>
+{% if top_machines %}
+<table class="grid">
+  <thead><tr><th>#</th><th>Maschine</th><th>Firma</th><th>Fehler</th></tr></thead>
+  <tbody>
+  {% for t in top_machines %}
+    <tr>
+      <td>{{ loop.index }}</td>
+      <td><a href="/machines/{{ t.machine_id }}">{{ t.machine_id }}</a></td>
+      <td>{{ t.company or "—" }}</td>
+      <td>{{ t.n }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="muted">Noch keine Daten.</p>
+{% endif %}
+
+<p class="muted small">Hinweis: Laufzeiten/Betriebszeiten je Maschine folgen in einer späteren Version.</p>
+
+<script>
+(async function () {
+  try {
+    const resp = await fetch("/api/stats/errors-per-day?days=30", {credentials: "same-origin"});
+    if (!resp.ok) return;
+    const data = await resp.json();
+    const ctx = document.getElementById("errorsPerDay");
+    new Chart(ctx, {
+      type: "bar",
+      data: {
+        labels: data.labels,
+        datasets: [{
+          label: "Fehlerberichte",
+          data: data.values,
+          backgroundColor: "#3b82f6"
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: { y: { beginAtZero: true, ticks: { precision: 0 } } },
+        plugins: { legend: { display: false } }
+      }
+    });
+  } catch (e) { /* robust: Diagramm ist optional */ }
+})();
+</script>
+{% endblock %}

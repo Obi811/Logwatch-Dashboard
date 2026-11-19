@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Kopier-Warnungen – LogWatch Dashboard{% endblock %}
+{% block content %}
+<h1>Kopier-Warnungen</h1>
+<p class="muted">
+  Eine Warnung erscheint, wenn dieselbe Maschinen-ID auf mehreren unterschiedlichen
+  Hardware-Umgebungen (Hardware-IDs) gemeldet wurde – ein möglicher Hinweis auf eine
+  kopierte/weitergegebene Installation.
+</p>
+
+{% if items %}
+  {% for it in items %}
+  <div class="warncard">
+    <h2>⚠ {{ it.machine.machine_id }}
+      <span class="muted small">({{ it.machine.company or "ohne Firma" }})</span></h2>
+    <p>{{ it.fingerprints|length }} unterschiedliche Hardware-IDs:</p>
+    <table class="grid">
+      <thead><tr><th>Hardware-ID</th><th>TeamViewer-ID</th><th>Hostname</th>
+        <th>Erstmals</th><th>Zuletzt</th></tr></thead>
+      <tbody>
+      {% for fp in it.fingerprints %}
+        <tr>
+          <td class="mono">{{ fp.hardware_id }}</td>
+          <td>{{ fp.teamviewer_id or "—" }}</td>
+          <td>{{ fp.hostname or "—" }}</td>
+          <td>{{ fp.first_seen.strftime("%d.%m.%Y %H:%M") }}</td>
+          <td>{{ fp.last_seen.strftime("%d.%m.%Y %H:%M") }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    <p><a class="btn ghost" href="/machines/{{ it.machine.machine_id }}">Maschine öffnen</a></p>
+  </div>
+  {% endfor %}
+{% else %}
+<p class="muted">Aktuell keine Kopier-Warnungen. 🎉</p>
+{% endif %}
+{% endblock %}

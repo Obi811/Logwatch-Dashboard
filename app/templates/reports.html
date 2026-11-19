@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Fehlerberichte – LogWatch Dashboard{% endblock %}
+{% block content %}
+<h1>Fehlerberichte</h1>
+
+<form class="filterbar" method="get" action="/reports">
+  <select name="status">
+    <option value="" {% if not status %}selected{% endif %}>Alle Status</option>
+    <option value="offen" {% if status == "offen" %}selected{% endif %}>Offen</option>
+    <option value="abgeschlossen" {% if status == "abgeschlossen" %}selected{% endif %}>Abgeschlossen</option>
+  </select>
+  <input type="text" name="machine_id" value="{{ machine_id }}" placeholder="Maschinen-ID">
+  <input type="text" name="company" value="{{ company }}" placeholder="Firma / Kunde">
+  <button class="btn" type="submit">Filtern</button>
+  <a class="btn ghost" href="/reports">Zurücksetzen</a>
+</form>
+
+{% if reports %}
+<table class="grid">
+  <thead><tr>
+    <th>Zeit (Eingang)</th><th>Maschine</th><th>Firma</th>
+    <th>Auszug</th><th>Anzahl</th><th>Status</th><th></th>
+  </tr></thead>
+  <tbody>
+  {% for r in reports %}
+    <tr>
+      <td>{{ r.received_at.strftime("%d.%m.%Y %H:%M") }}</td>
+      <td><a href="/machines/{{ r.machine_id }}">{{ r.machine_id }}</a></td>
+      <td>{{ companies.get(r.machine_id, "") or "—" }}</td>
+      <td class="excerpt">{{ (r.error_lines.split("\n")[0] if r.error_lines else "")|truncate(70, true) or "—" }}</td>
+      <td>{{ r.error_count }}</td>
+      <td>{% if r.status == "offen" %}<span class="badge open">offen</span>
+          {% else %}<span class="badge closed">abgeschlossen</span>{% endif %}</td>
+      <td><a class="btn ghost" href="/reports/{{ r.id }}">Details</a></td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="muted">Keine Fehlerberichte für diese Filter.</p>
+{% endif %}
+{% endblock %}

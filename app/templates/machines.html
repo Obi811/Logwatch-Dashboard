@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Maschinen – LogWatch Dashboard{% endblock %}
+{% block content %}
+<h1>Maschinen</h1>
+
+<form class="filterbar" method="get" action="/machines">
+  <input type="text" name="q" value="{{ q }}" placeholder="Suche nach Maschinen-ID oder Firma">
+  <button class="btn" type="submit">Suchen</button>
+  {% if q %}<a class="btn ghost" href="/machines">Zurücksetzen</a>{% endif %}
+</form>
+
+{% if rows %}
+<table class="grid">
+  <thead><tr>
+    <th>Maschinen-ID</th><th>Firma / Kunde</th><th>Zuletzt gesehen</th>
+    <th>Offen</th><th>Gesamt</th><th>Hinweis</th>
+  </tr></thead>
+  <tbody>
+  {% for row in rows %}
+    <tr>
+      <td><a href="/machines/{{ row.m.machine_id }}">{{ row.m.machine_id }}</a></td>
+      <td>{{ row.m.company or "—" }}</td>
+      <td>{{ row.m.last_seen.strftime("%d.%m.%Y %H:%M") }}</td>
+      <td>{% if row.open %}<span class="badge open">{{ row.open }}</span>{% else %}0{% endif %}</td>
+      <td>{{ row.total }}</td>
+      <td>{% if row.warn %}<span class="badge danger">⚠ mögliche Kopie</span>{% else %}—{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="muted">Keine Maschinen gefunden.</p>
+{% endif %}
+{% endblock %}

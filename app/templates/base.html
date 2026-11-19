@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}LogWatch Dashboard{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css">
+  {% block head %}{% endblock %}
+</head>
+<body>
+{% if user %}
+<header class="topbar">
+  <div class="brand"><a href="/">LogWatch&nbsp;Dashboard</a></div>
+  <nav class="mainnav">
+    <a href="/">Übersicht</a>
+    <a href="/machines">Maschinen</a>
+    <a href="/reports">Fehlerberichte</a>
+    <a href="/warnings">Warnungen</a>
+    <a href="/statistik">Statistik</a>
+  </nav>
+  <div class="userbox">
+    <span class="uname">{{ user }}</span>
+    <a class="logout" href="/logout">Abmelden</a>
+  </div>
+</header>
+{% endif %}
+<main class="content">
+  {% block content %}{% endblock %}
+</main>
+</body>
+</html>

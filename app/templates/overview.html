@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Übersicht – LogWatch Dashboard{% endblock %}
+{% block content %}
+<h1>Übersicht</h1>
+
+<div class="cards">
+  <a class="card" href="/machines">
+    <div class="num">{{ machine_count }}</div><div class="lbl">Maschinen</div>
+  </a>
+  <a class="card warn-open" href="/reports?status=offen">
+    <div class="num">{{ open_count }}</div><div class="lbl">Offene Fehler</div>
+  </a>
+  <a class="card ok" href="/reports?status=abgeschlossen">
+    <div class="num">{{ closed_count }}</div><div class="lbl">Abgeschlossen</div>
+  </a>
+  <a class="card danger" href="/warnings">
+    <div class="num">{{ warn_count }}</div><div class="lbl">Kopier-Warnungen</div>
+  </a>
+</div>
+
+<h2>Neueste Fehlerberichte</h2>
+{% if recent %}
+<table class="grid">
+  <thead><tr><th>Zeit (Eingang)</th><th>Maschine</th><th>Fehler</th><th>Status</th></tr></thead>
+  <tbody>
+  {% for r in recent %}
+    <tr>
+      <td>{{ r.received_at.strftime("%d.%m.%Y %H:%M") }}</td>
+      <td><a href="/machines/{{ r.machine_id }}">{{ r.machine_id }}</a></td>
+      <td><a href="/reports/{{ r.id }}">{{ r.error_count }} Zeile(n)</a></td>
+      <td>{% if r.status == "offen" %}<span class="badge open">offen</span>
+          {% else %}<span class="badge closed">abgeschlossen</span>{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="muted">Noch keine Fehlerberichte vorhanden.</p>
+{% endif %}
+{% endblock %}
