@@ -1,0 +1,40 @@
+# TODO / Aufgabenliste – LogWatch Dashboard
+
+Hier können offene Aufgaben, Ideen und Fehler eingetragen werden.
+Zum Abhaken einfach `[ ]` in `[x]` ändern. Neue Punkte unten anhängen.
+
+---
+
+## 🔧 Offen
+
+- [ ] Laufzeiten/Uptime-Auswertung je Maschine (Heartbeat auswerten)
+- [ ] Benutzerverwaltung im UI (weitere Admin-Konten anlegen/ändern)
+- [ ] Aufbewahrungs-/Löschkonzept für alte Logdateien (Speicherplatz)
+- [ ] 
+- [ ] 
+
+## 💡 Ideen / Verbesserungen
+
+- [ ] E-Mail-/Push-Benachrichtigung bei neuer Kopier-Warnung
+- [ ] Export der Fehler-Historie (CSV/Excel)
+- [ ] Mehr Diagramme (Fehler je Maschine/Firma, Trend über Wochen)
+- [ ] 
+- [ ] 
+
+## 🐞 Fehler / Bugs
+
+- [ ] 
+- [ ] 
+- [ ] 
+
+---
+
+## ✅ Erledigt
+
+- [x] Interner Login (bcrypt, Session-Cookie)
+- [x] Upload-API (Token-geschützt) + Healthcheck
+- [x] Maschinenübersicht, Fehler-Historie, Detailansicht, Logdatei-Download
+- [x] Abschließen/Wieder öffnen von Fehlerberichten
+- [x] Kopier-Erkennung (eine Maschinen-ID, mehrere Hardware-IDs)
+- [x] Statistik mit Chart.js
+- [x] Deployment (systemd + nginx), DB-Init, live unter logwatch-dash.abacusai.cloud

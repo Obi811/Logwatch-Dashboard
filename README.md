@@ -170,3 +170,11 @@ Eine Warnung ist ein **Hinweis**, kein Beweis: legitime Hardware-Wechsel (neue
 Platte, Mainboard-Tausch) erzeugen ebenfalls eine neue Hardware-ID. Die Warnung
 zeigt alle beteiligten Hardware-IDs samt Zeitpunkten, damit ein Mensch den Fall
 bewerten kann.
+
+## Projektpflege
+
+- **Versionen/Änderungen:** siehe [`CHANGELOG.md`](CHANGELOG.md) (Semantische Versionierung).
+- **Offene Aufgaben/Ideen:** siehe [`TODO.md`](TODO.md).
+
+Konvention: Bei jeder Änderung werden `CHANGELOG.md`, `TODO.md` und diese
+`README.md` mitgepflegt.
