@@ -1,0 +1,49 @@
+name: Doku-Check
+
+# Stellt sicher, dass bei Code-Änderungen auch der CHANGELOG gepflegt wird.
+# Läuft bei Pull Requests sowie bei Pushes auf main. Tag-Pushes (Releases) und
+# reine Doku-Commits werden übersprungen.
+
+on:
+  pull_request:
+  push:
+    branches: ["main"]
+
+jobs:
+  changelog:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Code auschecken
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: CHANGELOG-Pflege prüfen
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="origin/${{ github.base_ref }}"
+            HEAD="HEAD"
+          else
+            BASE="${{ github.event.before }}"
+            HEAD="${{ github.sha }}"
+            if ! git rev-parse --quiet --verify "$BASE^{commit}" >/dev/null 2>&1; then
+              echo "Kein Vergleichs-Commit vorhanden – übersprungen."; exit 0
+            fi
+          fi
+
+          CHANGED=$(git diff --name-only "$BASE" "$HEAD")
+          echo "Geänderte Dateien:"; echo "$CHANGED"
+
+          # Betrifft die Änderung den Code (App, Tests, DB-Init, Requirements)?
+          if echo "$CHANGED" | grep -qE '^(app/|tests/|init_db\.py|requirements\.txt)'; then
+            if echo "$CHANGED" | grep -qx 'CHANGELOG.md'; then
+              echo "OK: Code geändert und CHANGELOG.md wurde gepflegt."
+            else
+              echo "::error::Code wurde geändert, aber CHANGELOG.md nicht aktualisiert. Bitte den Abschnitt '## [Unveröffentlicht]' ergänzen."
+              exit 1
+            fi
+          else
+            echo "Keine Code-Änderung – CHANGELOG-Prüfung nicht erforderlich."
+          fi

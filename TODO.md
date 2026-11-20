@@ -38,3 +38,8 @@ Zum Abhaken einfach `[ ]` in `[x]` ändern. Neue Punkte unten anhängen.
 - [x] Kopier-Erkennung (eine Maschinen-ID, mehrere Hardware-IDs)
 - [x] Statistik mit Chart.js
 - [x] Deployment (systemd + nginx), DB-Init, live unter logwatch-dash.abacusai.cloud
+- [x] CI: Integrationstests + Doku-Check bei Push/PR (GitHub Actions)
+- [x] Automatisierte Abhängigkeits-Updates per Dependabot (Python + GitHub-Actions, wöchentliche PRs)
+- [x] Automatische Sicherheits-Updates bei bekannten Schwachstellen (Dependabot Security)
+- [x] Sicherheits-Audit der Abhängigkeiten per `pip-audit` (CI-Workflow `Security-Audit`)
+- [x] Automatisierte Doku-Pflege: Release-Skript `scripts/release.py`

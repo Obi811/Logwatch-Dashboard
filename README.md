@@ -178,3 +178,23 @@ bewerten kann.
 
 Konvention: Bei jeder Änderung werden `CHANGELOG.md`, `TODO.md` und diese
 `README.md` mitgepflegt.
+
+### CI & automatisierte Pflege (GitHub Actions)
+
+- **Tests (`.github/workflows/tests.yml`):** laufen bei jedem Push/PR
+  (SQLite-isoliert, kein PostgreSQL nötig).
+- **Doku-Check (`.github/workflows/docs-check.yml`):** schlägt fehl, wenn Code
+  geändert wurde, ohne den `CHANGELOG.md` zu pflegen.
+- **Dependabot (`.github/dependabot.yml`):** prüft wöchentlich die
+  Python-Pakete und die GitHub-Actions und schlägt Aktualisierungen als
+  **gesammelte Pull-Requests** vor. Es wird nichts automatisch zusammengeführt
+  – jeder Update-PR wird von dir geprüft und bestätigt. Bekannte
+  Sicherheitslücken werden zusätzlich automatisch als PR gemeldet.
+- **Sicherheits-Audit (`.github/workflows/security-audit.yml`):** prüft die
+  Abhängigkeiten bei jedem Push/PR und wöchentlich mit `pip-audit`.
+- **Release:** `python scripts/release.py X.Y.Z --push` überführt den Block
+  „Unveröffentlicht" des CHANGELOG in einen Versionsabschnitt, setzt `VERSION`
+  und (mit `--push`) Commit und Tag `vX.Y.Z`.
+- **Tipp – Tests als Pflicht-Merge-Bedingung:** einmalig in GitHub unter
+  *Settings → Branches → Protection rule* für `main` „Require status checks to
+  pass" aktivieren und `Tests`, `Security-Audit` und `Doku-Check` auswählen.

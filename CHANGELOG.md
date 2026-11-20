@@ -7,7 +7,23 @@ Das Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/de/1
 und das Projekt folgt der [Semantischen Versionierung](https://semver.org/lang/de/).
 
 ## [Unveröffentlicht]
-- —
+### Hinzugefügt
+- **CI-Tests** (`.github/workflows/tests.yml`): führen die Integrationstests
+  (SQLite-isoliert) bei jedem Push und Pull-Request aus.
+- **Doku-Check** (`.github/workflows/docs-check.yml`): schlägt fehl, wenn Code
+  geändert wurde, ohne den CHANGELOG zu pflegen.
+- **Automatisierte Abhängigkeits-Pflege (Dependabot):** `.github/dependabot.yml`
+  prüft wöchentlich die Python-Pakete (`requirements.txt`) und die
+  GitHub-Actions und schlägt Aktualisierungen als **gesammelte Pull-Requests**
+  vor. Zusammengeführt wird nichts automatisch – die Kontrolle bleibt bei dir.
+  Sicherheits-Updates für bekannte Schwachstellen werden zusätzlich automatisch
+  als PR eröffnet.
+- **Sicherheits-Audit `Security-Audit`** (`.github/workflows/security-audit.yml`):
+  prüft die Abhängigkeiten bei jedem Push/PR und wöchentlich mit `pip-audit`
+  auf bekannte Sicherheitslücken.
+- **Automatisierte Doku-Pflege:** Release-Skript `scripts/release.py`, das beim
+  Release den Abschnitt „Unveröffentlicht" des CHANGELOG in einen neuen
+  Versionsabschnitt überführt, `VERSION` setzt und (mit `--push`) Tag/Commit auslöst.
 
 ## [0.1.0] – 2026-11-19
 ### Hinzugefügt
