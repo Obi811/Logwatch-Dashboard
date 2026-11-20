@@ -25,6 +25,12 @@ und das Projekt folgt der [Semantischen Versionierung](https://semver.org/lang/d
   Release den Abschnitt „Unveröffentlicht" des CHANGELOG in einen neuen
   Versionsabschnitt überführt, `VERSION` setzt und (mit `--push`) Tag/Commit auslöst.
 
+### Geändert
+- Abhängigkeiten aktualisiert (Dependabot): u. a. `fastapi` (>=0.163.1),
+  `uvicorn` (>=0.54.0), `sqlalchemy` (>=2.1.9), `psycopg` (>=3.3.9),
+  `bcrypt` (>=5.0.0), `python-multipart` (>=0.0.34), `itsdangerous` (>=2.2.0),
+  `jinja2` (>=3.1.6) und `python-dotenv` (>=1.2.4). Tests und Sicherheits-Audit grün.
+
 ## [0.1.0] – 2026-11-19
 ### Hinzugefügt
 - Interner Login (Session-Cookie, bcrypt) – nur Admin-/Mitarbeiter-Konten,
