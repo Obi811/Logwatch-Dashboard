@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Benutzer – LogWatch Dashboard{% endblock %}
+{% block content %}
+<h1>Benutzerverwaltung</h1>
+<p class="muted">Interne Dashboard-Konten (Admin/Mitarbeiter). Alle Konten sehen
+alle Maschinen – es gibt keine getrennten Rollen.</p>
+
+<section class="panel">
+  <h2>Neuen Benutzer anlegen</h2>
+  <form class="userform" method="post" action="/users/create" autocomplete="off">
+    <div class="formrow">
+      <label>Benutzername
+        <input type="text" name="username" required minlength="3" maxlength="100"
+               placeholder="z. B. mueller">
+      </label>
+      <label>Passwort
+        <input type="password" name="password" required minlength="{{ min_pw_len }}"
+               autocomplete="new-password">
+      </label>
+      <label>Passwort wiederholen
+        <input type="password" name="password2" required minlength="{{ min_pw_len }}"
+               autocomplete="new-password">
+      </label>
+    </div>
+    <button type="submit" class="btn primary">Benutzer anlegen</button>
+    <p class="hint">Mindestens {{ min_pw_len }} Zeichen. Erlaubte Zeichen im
+      Benutzernamen: Buchstaben, Ziffern und <code>. _ @ + -</code></p>
+  </form>
+</section>
+
+<section class="panel">
+  <h2>Vorhandene Benutzer ({{ users|length }})</h2>
+  <table class="grid">
+    <thead>
+      <tr><th>Benutzername</th><th>Angelegt</th><th>Passwort ändern</th><th></th></tr>
+    </thead>
+    <tbody>
+    {% for u in users %}
+      <tr>
+        <td>{{ u.username }}{% if u.username == user %} <span class="badge">du</span>{% endif %}</td>
+        <td>{{ u.created_at.strftime("%d.%m.%Y %H:%M") if u.created_at else "–" }}</td>
+        <td>
+          <form class="inline" method="post" action="/users/{{ u.id }}/password" autocomplete="off">
+            <input type="password" name="password" required minlength="{{ min_pw_len }}"
+                   placeholder="neues Passwort" autocomplete="new-password">
+            <input type="password" name="password2" required minlength="{{ min_pw_len }}"
+                   placeholder="wiederholen" autocomplete="new-password">
+            <button type="submit" class="btn small">Ändern</button>
+          </form>
+        </td>
+        <td>
+          {% if u.username != user %}
+          <form class="inline" method="post" action="/users/{{ u.id }}/delete"
+                onsubmit="return confirm('Benutzer „{{ u.username }}“ wirklich löschen?');">
+            <button type="submit" class="btn small danger">Löschen</button>
+          </form>
+          {% else %}
+          <span class="muted">—</span>
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

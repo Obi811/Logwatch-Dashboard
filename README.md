@@ -10,6 +10,14 @@ die Fehler-Historie, mögliche Raubkopien und Auswertungen.
 - **Interner Login** (Session-Cookie): nur wenige Admin-/Mitarbeiter-Konten, die
   **alle** Maschinen sehen. Kein Kunden-Self-Service, kein Mandanten-Modell.
   Firma/Kunde wird je Maschine gespeichert (für Gruppierung/Filter).
+- **Benutzerverwaltung** (`/users`): eingeloggte Konten können weitere
+  Dashboard-Benutzer anlegen, deren Passwort ändern und Konten löschen.
+  Benutzernamen sind eindeutig, Passwörter mindestens 8 Zeichen; das eigene
+  Konto und der letzte verbleibende Benutzer sind vor dem Löschen geschützt.
+- **Versions-/Update-Hinweis**: das Dashboard prüft über die GitHub-API, ob eine
+  neuere Version veröffentlicht wurde, und zeigt dann einen dezenten Hinweis mit
+  Link zum Release. Kein automatisches Self-Update – aktualisiert wird durch
+  erneutes Deployen (`git pull` + Dienst-Neustart). Details siehe unten.
 - **Upload-API** für die Clients (Token-geschützt, **ohne** Login).
 - **Maschinenübersicht** mit Firma, Zeitpunkten, offenen/gesamten Fehlern.
 - **Kopier-Erkennung**: Meldet dieselbe Maschinen-ID unterschiedliche Hardware-IDs
@@ -55,6 +63,7 @@ logwatch-dashboard/
 │  ├─ db.py              # Engine + Connection-Pool + Session
 │  ├─ models.py          # SQLAlchemy-Datenmodell
 │  ├─ auth.py            # bcrypt + Session-Helfer
+│  ├─ version_check.py   # Update-Hinweis (GitHub-Release-Prüfung, gecacht)
 │  ├─ templates/         # Jinja2-Templates (deutsch)
 │  └─ static/style.css
 ├─ deploy/
@@ -80,6 +89,8 @@ Siehe `.env.example`. Die echte `.env` wird **nicht** eingecheckt.
 | `SECRET_KEY` | Schlüssel zum Signieren der Session-Cookies (lang & zufällig). |
 | `PUBLIC_HOST` | (optional) öffentlicher Host, nur für Links/Logs. |
 | `UPLOAD_DIR` | (optional) Verzeichnis für Logdateien (Standard `data/uploads`). |
+| `GITHUB_PAT` | (optional) GitHub-Token für den Update-Hinweis. Nur nötig, wenn das Dashboard-Repo **privat** ist. Wird nie geloggt. |
+| `UPDATE_CHECK_ENABLED` | (optional) Update-Hinweis an/aus (Standard `1`). Auf `0` setzen, um die GitHub-Abfrage abzuschalten. |
 
 ## Lokale Entwicklung
 

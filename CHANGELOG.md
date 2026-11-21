@@ -8,6 +8,21 @@ und das Projekt folgt der [Semantischen Versionierung](https://semver.org/lang/d
 
 ## [Unveröffentlicht]
 ### Hinzugefügt
+- **Benutzerverwaltung im UI** (`/users`): eingeloggte Admins/Mitarbeiter können
+  weitere Dashboard-Konten **anlegen**, deren **Passwort ändern** und Konten
+  **löschen**. Schutzregeln: Benutzernamen sind eindeutig (unabhängig von
+  Groß-/Kleinschreibung), Passwörter mindestens 8 Zeichen, das eigene Konto und
+  der letzte verbleibende Benutzer können nicht gelöscht werden. Neuer Nav-Punkt
+  „Benutzer".
+- **Versions-/Update-Hinweis (Variante 1)** (`app/version_check.py`): das
+  Dashboard prüft über die GitHub-API, ob eine neuere Version veröffentlicht
+  wurde, und blendet dann einen dezenten Hinweis mit Link zum Release ein. Die
+  Prüfung ist robust (zeigt bei Problemen einfach nichts), wird
+  zwischengespeichert (Cache, kein Abruf bei jedem Seitenaufruf) und
+  unterstützt per optionalem `GITHUB_PAT` auch ein privates Repo. Über
+  `UPDATE_CHECK_ENABLED=0` abschaltbar. Ein echtes Self-Update (Code ersetzen)
+  ist bewusst **nicht** enthalten – ein Web-Dashboard wird durch erneutes
+  Deployen (`git pull` + Dienst-Neustart) aktualisiert.
 - **CI-Tests** (`.github/workflows/tests.yml`): führen die Integrationstests
   (SQLite-isoliert) bei jedem Push und Pull-Request aus.
 - **Doku-Check** (`.github/workflows/docs-check.yml`): schlägt fehl, wenn Code

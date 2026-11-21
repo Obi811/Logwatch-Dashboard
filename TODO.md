@@ -8,8 +8,8 @@ Zum Abhaken einfach `[ ]` in `[x]` ändern. Neue Punkte unten anhängen.
 ## 🔧 Offen
 
 - [ ] Laufzeiten/Uptime-Auswertung je Maschine (Heartbeat auswerten)
-- [ ] Benutzerverwaltung im UI (weitere Admin-Konten anlegen/ändern)
 - [ ] Aufbewahrungs-/Löschkonzept für alte Logdateien (Speicherplatz)
+- [ ] Self-Update/Deploy-Knopf (nur sinnvoll bei eigenem Server mit SSH/systemd)
 - [ ] 
 - [ ] 
 
@@ -43,3 +43,5 @@ Zum Abhaken einfach `[ ]` in `[x]` ändern. Neue Punkte unten anhängen.
 - [x] Automatische Sicherheits-Updates bei bekannten Schwachstellen (Dependabot Security)
 - [x] Sicherheits-Audit der Abhängigkeiten per `pip-audit` (CI-Workflow `Security-Audit`)
 - [x] Automatisierte Doku-Pflege: Release-Skript `scripts/release.py`
+- [x] Benutzerverwaltung im UI (Konten anlegen, Passwort ändern, löschen) unter `/users`
+- [x] Versions-/Update-Hinweis (GitHub-Release-Prüfung, Variante 1)

@@ -7,3 +7,4 @@ data/uploads/
 *.log
 .pytest_cache/
 .admin_credentials.txt
+Obi811_zugangsdaten.txt

@@ -95,3 +95,28 @@ table.kv tr:last-child th, table.kv tr:last-child td { border-bottom: none; }
 .warncard { background: #fff; border: 1px solid #fecaca; border-radius: 10px; padding: 1rem 1.25rem; margin: 1rem 0; }
 .warncard h2 { margin-top: 0; color: #991b1b; }
 .chartbox { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 1rem; height: 320px; }
+
+/* --- Update-Hinweis (Variante 1) --- */
+.update-banner { display: flex; flex-wrap: wrap; gap: .5rem 1rem; align-items: center;
+  justify-content: space-between; padding: .7rem 1rem; margin: 0 0 1rem;
+  background: #eff6ff; border: 1px solid #bfdbfe; color: #1e3a8a; border-radius: 8px; }
+.update-banner a { font-weight: 600; white-space: nowrap; }
+
+/* --- Flash/Alerts --- */
+.alert.success { background: #dcfce7; color: #166534; }
+
+/* --- Benutzerverwaltung --- */
+.panel { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px;
+  padding: 1rem 1.2rem; margin: 1.2rem 0; }
+.panel h2 { margin-top: 0; }
+.userform .formrow { display: flex; flex-wrap: wrap; gap: 1rem; margin-bottom: .8rem; }
+.userform label { display: flex; flex-direction: column; gap: .25rem; font-size: .9rem;
+  color: #475569; flex: 1 1 180px; }
+.userform input { padding: .45rem .6rem; border: 1px solid #cbd5e1; border-radius: 7px; }
+.userform .hint { color: #64748b; font-size: .82rem; margin: .5rem 0 0; }
+form.inline { display: flex; gap: .4rem; align-items: center; flex-wrap: wrap; margin: 0; }
+form.inline input { padding: .35rem .5rem; border: 1px solid #cbd5e1; border-radius: 6px;
+  font-size: .85rem; max-width: 150px; }
+.btn.small { padding: .3rem .6rem; font-size: .82rem; }
+.btn.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
+.btn.danger:hover { background: #dc2626; }

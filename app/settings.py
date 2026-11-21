@@ -20,6 +20,13 @@ class Settings:
         self.upload_token = os.environ.get("UPLOAD_TOKEN", "")
         self.secret_key = os.environ.get("SECRET_KEY", "dev-insecure-secret-change-me")
         self.public_host = os.environ.get("PUBLIC_HOST", "")
+        # Optionales GitHub-Token für die Update-Prüfung (nötig nur bei privatem Repo).
+        self.github_pat = os.environ.get("GITHUB_PAT", "").strip()
+        # Update-Hinweis (Variante 1) – standardmäßig aktiv; in Tests/Offline abschaltbar.
+        self.update_check_enabled = (
+            os.environ.get("UPDATE_CHECK_ENABLED", "1").strip().lower()
+            not in ("0", "false", "no", "off", "")
+        )
         upload_dir = os.environ.get("UPLOAD_DIR", os.path.join(_PROJECT_ROOT, "data", "uploads"))
         if not os.path.isabs(upload_dir):
             upload_dir = os.path.join(_PROJECT_ROOT, upload_dir)

@@ -22,12 +22,15 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
 
-from .auth import current_user, login_user, logout_user, verify_password
+from .auth import (
+    current_user, hash_password, login_user, logout_user, verify_password,
+)
 from .db import get_db
 from .models import (
     STATUS_CLOSED, STATUS_OPEN, ErrorReport, HardwareFingerprint, Machine, User,
 )
 from .settings import get_settings
+from .version_check import cached_update_check
 
 _settings = get_settings()
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -62,8 +65,32 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+_FLASH_KEY = "_flash"
+
+
+def flash(request: Request, message: str, category: str = "success") -> None:
+    """Hinterlegt eine einmalige Meldung in der Session (Post/Redirect/Get)."""
+    msgs = request.session.get(_FLASH_KEY, [])
+    msgs.append({"message": message, "category": category})
+    request.session[_FLASH_KEY] = msgs
+
+
+def _pop_flashes(request: Request) -> list[dict]:
+    """Liest und entfernt die Flash-Meldungen aus der Session."""
+    msgs = request.session.pop(_FLASH_KEY, [])
+    return msgs if isinstance(msgs, list) else []
+
+
 def _ctx(request: Request, user: str, **extra) -> dict:
-    ctx = {"request": request, "user": user}
+    ctx = {
+        "request": request,
+        "user": user,
+        "flashes": _pop_flashes(request),
+        "update": cached_update_check(
+            enabled=_settings.update_check_enabled,
+            token=_settings.github_pat or None,
+        ),
+    }
     ctx.update(extra)
     return ctx
 
@@ -130,6 +157,94 @@ def login_submit(
 def logout(request: Request):
     logout_user(request)
     return RedirectResponse("/login", status_code=303)
+
+
+# ----------------------------------------------------------------------------
+# Benutzerverwaltung (nur eingeloggte Admins/Mitarbeiter)
+# ----------------------------------------------------------------------------
+_USERNAME_RE = re.compile(r"^[A-Za-z0-9._@+-]{3,100}$")
+_MIN_PASSWORD_LEN = 8
+
+
+@app.get("/users", response_class=HTMLResponse)
+def users_list(request: Request, user: str = Depends(require_user),
+               db: Session = Depends(get_db)):
+    users = db.execute(select(User).order_by(User.username)).scalars().all()
+    return templates.TemplateResponse(request, "users.html", _ctx(
+        request, user, users=users, min_pw_len=_MIN_PASSWORD_LEN))
+
+
+@app.post("/users/create")
+def users_create(request: Request,
+                 username: str = Form(...),
+                 password: str = Form(...),
+                 password2: str = Form(...),
+                 user: str = Depends(require_user),
+                 db: Session = Depends(get_db)):
+    username = (username or "").strip()
+    if not _USERNAME_RE.match(username):
+        flash(request, "Ungültiger Benutzername: 3–100 Zeichen, erlaubt sind "
+                       "Buchstaben, Ziffern und . _ @ + -", "error")
+        return RedirectResponse("/users", status_code=303)
+    if len(password) < _MIN_PASSWORD_LEN:
+        flash(request, f"Das Passwort muss mindestens {_MIN_PASSWORD_LEN} "
+                       "Zeichen lang sein.", "error")
+        return RedirectResponse("/users", status_code=303)
+    if password != password2:
+        flash(request, "Die beiden Passwörter stimmen nicht überein.", "error")
+        return RedirectResponse("/users", status_code=303)
+    exists = db.scalar(select(User).where(func.lower(User.username) == username.lower()))
+    if exists is not None:
+        flash(request, f"Der Benutzer „{username}“ existiert bereits.", "error")
+        return RedirectResponse("/users", status_code=303)
+
+    db.add(User(username=username, password_hash=hash_password(password)))
+    db.commit()
+    flash(request, f"Benutzer „{username}“ wurde angelegt.", "success")
+    return RedirectResponse("/users", status_code=303)
+
+
+@app.post("/users/{user_id}/password")
+def users_change_password(user_id: int, request: Request,
+                          password: str = Form(...),
+                          password2: str = Form(...),
+                          user: str = Depends(require_user),
+                          db: Session = Depends(get_db)):
+    target = db.get(User, user_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail="Benutzer nicht gefunden")
+    if len(password) < _MIN_PASSWORD_LEN:
+        flash(request, f"Das Passwort muss mindestens {_MIN_PASSWORD_LEN} "
+                       "Zeichen lang sein.", "error")
+        return RedirectResponse("/users", status_code=303)
+    if password != password2:
+        flash(request, "Die beiden Passwörter stimmen nicht überein.", "error")
+        return RedirectResponse("/users", status_code=303)
+    target.password_hash = hash_password(password)
+    db.commit()
+    flash(request, f"Passwort für „{target.username}“ wurde geändert.", "success")
+    return RedirectResponse("/users", status_code=303)
+
+
+@app.post("/users/{user_id}/delete")
+def users_delete(user_id: int, request: Request,
+                 user: str = Depends(require_user),
+                 db: Session = Depends(get_db)):
+    target = db.get(User, user_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail="Benutzer nicht gefunden")
+    if target.username == user:
+        flash(request, "Du kannst dein eigenes Konto nicht löschen.", "error")
+        return RedirectResponse("/users", status_code=303)
+    total = db.scalar(select(func.count(User.id))) or 0
+    if total <= 1:
+        flash(request, "Der letzte verbleibende Benutzer kann nicht gelöscht werden.", "error")
+        return RedirectResponse("/users", status_code=303)
+    name = target.username
+    db.delete(target)
+    db.commit()
+    flash(request, f"Benutzer „{name}“ wurde gelöscht.", "success")
+    return RedirectResponse("/users", status_code=303)
 
 
 # ----------------------------------------------------------------------------

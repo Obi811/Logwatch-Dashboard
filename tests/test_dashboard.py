@@ -20,8 +20,10 @@ os.environ["ADMIN_USER"] = "admin"
 os.environ["ADMIN_PASSWORD"] = "test-admin-pw"
 os.environ["SECRET_KEY"] = "test-secret"
 os.environ["UPLOAD_DIR"] = os.path.join(_TMP, "uploads")
+os.environ["UPDATE_CHECK_ENABLED"] = "0"  # keine GitHub-Abfrage in Tests
 
 from fastapi.testclient import TestClient  # noqa: E402
+from sqlalchemy import select  # noqa: E402
 
 from app.auth import hash_password  # noqa: E402
 from app.db import Base, SessionLocal, engine  # noqa: E402
@@ -222,3 +224,187 @@ def test_pages_render(logged_in):
     for path in ["/", "/machines", "/reports", "/warnings", "/statistik"]:
         resp = client.get(path)
         assert resp.status_code == 200, path
+
+
+# --------------------------------------------------------------------------
+# (e) Benutzerverwaltung: anlegen, Login, Validierung, Passwort, Löschen
+# --------------------------------------------------------------------------
+def test_users_requires_login(client):
+    r = client.get("/users", follow_redirects=False)
+    assert r.status_code == 303
+    assert r.headers["location"] == "/login"
+
+
+def test_create_user_and_login(logged_in):
+    client = logged_in
+    r = client.post("/users/create",
+                    data={"username": "neuer", "password": "geheim12345",
+                          "password2": "geheim12345"},
+                    follow_redirects=False)
+    assert r.status_code == 303
+
+    db = SessionLocal()
+    try:
+        u = db.scalar(select(User).where(User.username == "neuer"))
+        assert u is not None
+    finally:
+        db.close()
+
+    # Der neue Benutzer kann sich einloggen
+    fresh = TestClient(app)
+    lr = fresh.post("/login", data={"username": "neuer", "password": "geheim12345"},
+                    follow_redirects=False)
+    assert lr.status_code == 303
+
+
+def test_create_user_duplicate_rejected(logged_in):
+    client = logged_in
+    before = _user_count()
+    r = client.post("/users/create",
+                    data={"username": "admin", "password": "geheim12345",
+                          "password2": "geheim12345"},
+                    follow_redirects=False)
+    assert r.status_code == 303
+    assert _user_count() == before  # kein neuer Benutzer
+
+
+def test_create_user_password_mismatch(logged_in):
+    client = logged_in
+    before = _user_count()
+    r = client.post("/users/create",
+                    data={"username": "xyzuser", "password": "geheim12345",
+                          "password2": "anders98765"},
+                    follow_redirects=False)
+    assert r.status_code == 303
+    assert _user_count() == before
+
+
+def test_create_user_short_password(logged_in):
+    client = logged_in
+    before = _user_count()
+    r = client.post("/users/create",
+                    data={"username": "kurzpw", "password": "123", "password2": "123"},
+                    follow_redirects=False)
+    assert r.status_code == 303
+    assert _user_count() == before
+
+
+def test_change_password(logged_in):
+    client = logged_in
+    client.post("/users/create",
+                data={"username": "pwuser", "password": "altpw12345",
+                      "password2": "altpw12345"}, follow_redirects=False)
+    db = SessionLocal()
+    try:
+        uid = db.scalar(select(User.id).where(User.username == "pwuser"))
+    finally:
+        db.close()
+    r = client.post(f"/users/{uid}/password",
+                    data={"password": "neupw67890", "password2": "neupw67890"},
+                    follow_redirects=False)
+    assert r.status_code == 303
+    fresh = TestClient(app)
+    lr = fresh.post("/login", data={"username": "pwuser", "password": "neupw67890"},
+                    follow_redirects=False)
+    assert lr.status_code == 303
+
+
+def test_cannot_delete_self(logged_in):
+    client = logged_in
+    db = SessionLocal()
+    try:
+        admin_id = db.scalar(select(User.id).where(User.username == "admin"))
+    finally:
+        db.close()
+    before = _user_count()
+    r = client.post(f"/users/{admin_id}/delete", follow_redirects=False)
+    assert r.status_code == 303
+    # admin existiert weiterhin
+    db = SessionLocal()
+    try:
+        assert db.scalar(select(User).where(User.username == "admin")) is not None
+    finally:
+        db.close()
+    assert _user_count() == before
+
+
+def test_delete_user(logged_in):
+    client = logged_in
+    client.post("/users/create",
+                data={"username": "loeschmich", "password": "geheim12345",
+                      "password2": "geheim12345"}, follow_redirects=False)
+    db = SessionLocal()
+    try:
+        uid = db.scalar(select(User.id).where(User.username == "loeschmich"))
+    finally:
+        db.close()
+    r = client.post(f"/users/{uid}/delete", follow_redirects=False)
+    assert r.status_code == 303
+    db = SessionLocal()
+    try:
+        assert db.scalar(select(User).where(User.username == "loeschmich")) is None
+    finally:
+        db.close()
+
+
+def _user_count() -> int:
+    from sqlalchemy import func as _f
+    db = SessionLocal()
+    try:
+        return db.scalar(select(_f.count(User.id))) or 0
+    finally:
+        db.close()
+
+
+# --------------------------------------------------------------------------
+# (f) Versions-/Update-Check (Variante 1) – reine Logik, ohne Netzwerk
+# --------------------------------------------------------------------------
+from app import version_check as vc  # noqa: E402
+
+
+def test_version_compare():
+    assert vc.compare_versions("0.1.0", "0.2.0") == -1
+    assert vc.compare_versions("1.0.0", "1.0.0") == 0
+    assert vc.compare_versions("0.3.0", "0.2.9") == 1
+    assert vc.is_newer("v0.2.0", "0.1.0") is True
+    assert vc.is_newer("0.1.0", "0.1.0") is False
+
+
+class _FakeResp:
+    def __init__(self, status, data):
+        self.status_code = status
+        self._data = data
+
+    def json(self):
+        return self._data
+
+
+def test_check_for_update_available():
+    def fake_get(url, headers, timeout):
+        return _FakeResp(200, {"tag_name": "v0.2.0", "name": "v0.2.0",
+                               "html_url": "https://example/releases/v0.2.0"})
+    info = vc.check_for_update(local_version="0.1.0", get_func=fake_get)
+    assert info.ok is True
+    assert info.update_available is True
+    assert info.remote_version == "0.2.0"
+
+
+def test_check_for_update_up_to_date():
+    def fake_get(url, headers, timeout):
+        return _FakeResp(200, {"tag_name": "v0.1.0", "name": "v0.1.0"})
+    info = vc.check_for_update(local_version="0.1.0", get_func=fake_get)
+    assert info.ok is True
+    assert info.update_available is False
+
+
+def test_check_for_update_handles_error():
+    def fake_get(url, headers, timeout):
+        return _FakeResp(403, {})
+    info = vc.check_for_update(local_version="0.1.0", get_func=fake_get)
+    assert info.ok is False
+    assert info.update_available is False
+
+
+def test_cached_check_disabled_returns_none():
+    vc.reset_cache()
+    assert vc.cached_update_check(enabled=False) is None

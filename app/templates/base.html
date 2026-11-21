@@ -17,6 +17,7 @@
     <a href="/reports">Fehlerberichte</a>
     <a href="/warnings">Warnungen</a>
     <a href="/statistik">Statistik</a>
+    <a href="/users">Benutzer</a>
   </nav>
   <div class="userbox">
     <span class="uname">{{ user }}</span>
@@ -25,6 +26,19 @@
 </header>
 {% endif %}
 <main class="content">
+  {% if user and update and update.update_available %}
+  <div class="update-banner">
+    <span>Eine neue Dashboard-Version ist verfügbar:
+      <strong>{{ update.remote_version }}</strong>
+      (installiert: {{ update.local_version }}).</span>
+    <a href="{{ update.release_url }}" target="_blank" rel="noopener">Release ansehen →</a>
+  </div>
+  {% endif %}
+  {% if flashes %}
+    {% for f in flashes %}
+      <div class="alert {{ 'error' if f.category == 'error' else 'success' }}">{{ f.message }}</div>
+    {% endfor %}
+  {% endif %}
   {% block content %}{% endblock %}
 </main>
 </body>
