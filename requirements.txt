@@ -1,4 +1,4 @@
-fastapi>=0.163.1
+fastapi>=0.165.0
 uvicorn[standard]>=0.54.0
 sqlalchemy>=2.1.9
 psycopg[binary]>=3.3.9
@@ -7,7 +7,7 @@ python-multipart>=0.0.34
 itsdangerous>=2.2.0
 bcrypt>=5.0.0
 python-dotenv>=1.2.4
-requests>=2.32.0
+requests>=2.34.2
 
 # Nur für Tests:
 # pytest>=7
