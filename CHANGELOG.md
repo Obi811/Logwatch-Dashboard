@@ -8,6 +8,51 @@ und das Projekt folgt der [Semantischen Versionierung](https://semver.org/lang/d
 
 ## [Unveröffentlicht]
 ### Hinzugefügt
+- **Kommentarfunktion für Meldungen:** Jeder Fehlerbericht (Entität
+  `ErrorReport`, im UI „Meldung") kann nun kommentiert werden. Auf der
+  Detailseite einer Meldung (`/reports/{id}`) erscheinen alle Kommentare mit
+  Autor und Zeitstempel sowie ein Eingabefeld zum Hinzufügen. Neue Tabelle
+  `comments` (Fremdschlüssel auf `error_reports` und `users`, Kaskaden-Löschung).
+  Web-Routen `POST /reports/{id}/comments` (anlegen) und
+  `POST /comments/{id}/delete` (löschen). Leere Kommentare werden abgelehnt;
+  löschen darf nur der **Autor** oder ein **Admin** (sonst Flash-Fehler bzw.
+  HTTP 403 in der API). REST-API: `GET /api/v1/reports/{id}/comments`,
+  `POST /api/v1/reports/{id}/comments` und `DELETE /api/v1/comments/{id}`.
+- **Rollensystem (Admin / Benutzer):** Neue Spalte `role` an der Tabelle `users`
+  (Werte `admin`/`user`, Standard `user`, rückwärtskompatibel per
+  `ADD COLUMN IF NOT EXISTS` nachgezogen). **Admin** darf alles inkl. der
+  kompletten Benutzerverwaltung (`/users`: anlegen, Passwort ändern, Rolle
+  umstellen, löschen) und sieht den Nav-Punkt „Benutzer". Ein **Benutzer** sieht
+  alle Seiten (Übersicht, Maschinen, Warnungen, Meldungen, Statistik) und darf
+  kommentieren, aber **nicht** die Benutzerverwaltung öffnen (Weiterleitung mit
+  Flash-Fehler bzw. HTTP 403 in der API). Zentrale, wiederverwendbare
+  Absicherung `require_admin` (Web über Session-User, API über Token-User).
+  Die Benutzeranlage erlaubt die Rollenwahl (Dropdown, Standard „Benutzer"),
+  die Benutzertabelle zeigt die Rolle und ein Inline-Formular zum Umstellen.
+  Safeguard: der **letzte verbleibende Admin** kann weder herabgestuft noch
+  gelöscht werden. Bestehende Konten wurden bei der Migration zu Admins
+  befördert (Aussperr-Schutz). `GET /api/v1/me` liefert jetzt zusätzlich `role`.
+- **App-/REST-API (`/api/v1`, JSON)** als Backend für eine mobile App
+  (`app/api.py`, `app/api_auth.py`). Getrennt vom Session-basierten Web-UI und
+  **token-authentifiziert**: `POST /api/v1/auth/login` prüft Benutzername/Passwort
+  gegen die bestehende Benutzer-Tabelle und liefert einen signierten Bearer-Token
+  (`itsdangerous`/`SECRET_KEY`, 30 Tage gültig, enthält die `user_id`). Alle
+  weiteren Endpunkte verlangen `Authorization: Bearer <token>` (sonst HTTP 401
+  mit deutscher Meldung; der Token wird nie geloggt). Endpunkte: `GET /me`,
+  `GET /overview`, `GET /machines` (+ `?q=`), `GET /machines/{id}`,
+  `GET /warnings` (+ `?status=open|acknowledged`),
+  `POST /warnings/{machine_id}/acknowledge` (Kopier-Warnung quittieren),
+  `GET /reports` (paginierbar via `?limit=&offset=`, optional `?status=&machine_id=`)
+  und `GET /reports/{id}`. Alle Antworten nutzen **Pydantic-Response-Modelle**.
+- **Quittieren von Kopier-Warnungen:** Neue, rückwärtskompatible Spalten
+  `copy_warning_ack_at` / `copy_warning_ack_by` an der Tabelle `machines`
+  (per `ADD COLUMN IF NOT EXISTS` in `init_db.py` nachgezogen).
+- **OpenAPI/Swagger aktiviert** (`/docs`, `/redoc`, `/openapi.json`): alle
+  `/api/v1`-Routen erscheinen dort mit deutschen Beschreibungen, Tags und
+  Response-Modellen – als Referenz für die App-Entwicklung.
+- **CORS für die App-API** (`CORSMiddleware`) mit neuer Umgebungsvariable
+  `API_CORS_ORIGINS` (komma-separiert, Standard `*`), konfigurierbar in
+  `settings.py`.
 - **Benutzerverwaltung im UI** (`/users`): eingeloggte Admins/Mitarbeiter können
   weitere Dashboard-Konten **anlegen**, deren **Passwort ändern** und Konten
   **löschen**. Schutzregeln: Benutzernamen sind eindeutig (unabhängig von

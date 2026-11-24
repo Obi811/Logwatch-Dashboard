@@ -17,7 +17,7 @@
     <a href="/reports">Fehlerberichte</a>
     <a href="/warnings">Warnungen</a>
     <a href="/statistik">Statistik</a>
-    <a href="/users">Benutzer</a>
+    {% if is_admin %}<a href="/users">Benutzer</a>{% endif %}
   </nav>
   <div class="userbox">
     <span class="uname">{{ user }}</span>

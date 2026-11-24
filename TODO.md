@@ -15,6 +15,10 @@ Zum Abhaken einfach `[ ]` in `[x]` ändern. Neue Punkte unten anhängen.
 
 ## 💡 Ideen / Verbesserungen
 
+- [ ] Push-Benachrichtigungen an die mobile App (z.B. bei neuer Kopier-Warnung/neuem Fehler) – bewusst noch nicht Teil der REST-API
+- [ ] App-API: Refresh-Token / Token-Widerruf (aktuell nur fester 30-Tage-Token)
+- [ ] Benachrichtigung/Erwähnungen bei neuem Kommentar (bewusst noch nicht umgesetzt)
+- [ ] Rollenverwaltung über die REST-API (aktuell nur im Web-UI; API liefert nur die eigene Rolle über `/api/v1/me`)
 - [ ] E-Mail-/Push-Benachrichtigung bei neuer Kopier-Warnung
 - [ ] Export der Fehler-Historie (CSV/Excel)
 - [ ] Mehr Diagramme (Fehler je Maschine/Firma, Trend über Wochen)
@@ -45,3 +49,6 @@ Zum Abhaken einfach `[ ]` in `[x]` ändern. Neue Punkte unten anhängen.
 - [x] Automatisierte Doku-Pflege: Release-Skript `scripts/release.py`
 - [x] Benutzerverwaltung im UI (Konten anlegen, Passwort ändern, löschen) unter `/users`
 - [x] Versions-/Update-Hinweis (GitHub-Release-Prüfung, Variante 1)
+- [x] App-Unterstützung / REST-API (`/api/v1`): token-authentifizierte JSON-API (Login, me, overview, machines, warnings+acknowledge, reports), CORS, Swagger-Doku unter `/docs`
+- [x] Kommentarfunktion für Meldungen (Web-UI + REST-API): anlegen/löschen, nur Autor oder Admin darf löschen, leere Kommentare abgelehnt
+- [x] Rollensystem (Admin/Benutzer): `role`-Spalte, `require_admin`-Absicherung der Benutzerverwaltung (Web + API), Rollenwahl/-umstellung im UI, Schutz des letzten Admins, `role` in `/api/v1/me`

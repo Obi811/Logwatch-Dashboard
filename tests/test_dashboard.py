@@ -28,7 +28,9 @@ from sqlalchemy import select  # noqa: E402
 from app.auth import hash_password  # noqa: E402
 from app.db import Base, SessionLocal, engine  # noqa: E402
 from app.main import app  # noqa: E402
-from app.models import STATUS_CLOSED, STATUS_OPEN, ErrorReport, User  # noqa: E402
+from app.models import (  # noqa: E402
+    ROLE_ADMIN, ROLE_USER, STATUS_CLOSED, STATUS_OPEN, Comment, ErrorReport, User,
+)
 
 UPLOAD_TOKEN = "test-upload-token"
 
@@ -38,7 +40,8 @@ def _setup_db():
     Base.metadata.create_all(bind=engine)
     db = SessionLocal()
     try:
-        db.add(User(username="admin", password_hash=hash_password("test-admin-pw")))
+        db.add(User(username="admin", password_hash=hash_password("test-admin-pw"),
+                    role=ROLE_ADMIN))
         db.commit()
     finally:
         db.close()
@@ -352,6 +355,204 @@ def _user_count() -> int:
     db = SessionLocal()
     try:
         return db.scalar(select(_f.count(User.id))) or 0
+    finally:
+        db.close()
+
+
+# --------------------------------------------------------------------------
+# (g) Kommentarfunktion (Web-UI)
+# --------------------------------------------------------------------------
+def _make_user(username: str, password: str = "geheim12345", role=ROLE_USER) -> int:
+    """Legt einen Benutzer direkt in der DB an und liefert dessen ID."""
+    db = SessionLocal()
+    try:
+        u = User(username=username, password_hash=hash_password(password), role=role)
+        db.add(u)
+        db.commit()
+        return u.id
+    finally:
+        db.close()
+
+
+def _login(username: str, password: str = "geheim12345") -> TestClient:
+    c = TestClient(app)
+    r = c.post("/login", data={"username": username, "password": password},
+               follow_redirects=False)
+    assert r.status_code == 303
+    return c
+
+
+def test_comment_add_and_list(logged_in):
+    client = logged_in
+    rid = _upload(client, "CMT-1", "HW-CMT").json()["report_id"]
+    r = client.post(f"/reports/{rid}/comments", data={"body": "Mein Kommentar"},
+                    follow_redirects=False)
+    assert r.status_code == 303
+    page = client.get(f"/reports/{rid}")
+    assert "Mein Kommentar" in page.text
+
+
+def test_comment_empty_rejected(logged_in):
+    client = logged_in
+    rid = _upload(client, "CMT-EMPTY", "HW-E").json()["report_id"]
+    before = _comment_count(rid)
+    r = client.post(f"/reports/{rid}/comments", data={"body": "   "},
+                    follow_redirects=False)
+    assert r.status_code == 303
+    assert _comment_count(rid) == before
+
+
+def test_comment_author_can_delete_own(logged_in):
+    # Report anlegen (per Upload)
+    rid = _upload(logged_in, "CMT-DEL", "HW-D").json()["report_id"]
+    # Autor (normaler Benutzer) legt Kommentar an und löscht ihn selbst
+    _make_user("kommentator")
+    author = _login("kommentator")
+    author.post(f"/reports/{rid}/comments", data={"body": "lösch mich"},
+                follow_redirects=False)
+    cid = _latest_comment_id(rid)
+    r = author.post(f"/comments/{cid}/delete", follow_redirects=False)
+    assert r.status_code == 303
+    assert _get_comment(cid) is None
+
+
+def test_comment_stranger_cannot_delete(logged_in):
+    rid = _upload(logged_in, "CMT-STR", "HW-S").json()["report_id"]
+    _make_user("besitzer")
+    owner = _login("besitzer")
+    owner.post(f"/reports/{rid}/comments", data={"body": "nicht anfassen"},
+               follow_redirects=False)
+    cid = _latest_comment_id(rid)
+    # Ein fremder Nicht-Admin darf NICHT löschen
+    _make_user("fremder")
+    stranger = _login("fremder")
+    r = stranger.post(f"/comments/{cid}/delete", follow_redirects=False)
+    assert r.status_code == 303
+    assert _get_comment(cid) is not None  # weiterhin vorhanden
+
+
+def test_comment_admin_can_delete_any(logged_in):
+    client = logged_in  # admin
+    rid = _upload(client, "CMT-ADM", "HW-A").json()["report_id"]
+    _make_user("autor2")
+    author = _login("autor2")
+    author.post(f"/reports/{rid}/comments", data={"body": "admin löscht das"},
+                follow_redirects=False)
+    cid = _latest_comment_id(rid)
+    r = client.post(f"/comments/{cid}/delete", follow_redirects=False)
+    assert r.status_code == 303
+    assert _get_comment(cid) is None
+
+
+def _comment_count(report_id: int) -> int:
+    from sqlalchemy import func as _f
+    db = SessionLocal()
+    try:
+        return db.scalar(
+            select(_f.count(Comment.id)).where(Comment.report_id == report_id)) or 0
+    finally:
+        db.close()
+
+
+def _latest_comment_id(report_id: int) -> int:
+    db = SessionLocal()
+    try:
+        return db.scalar(
+            select(Comment.id).where(Comment.report_id == report_id)
+            .order_by(Comment.id.desc()).limit(1))
+    finally:
+        db.close()
+
+
+def _get_comment(comment_id: int):
+    db = SessionLocal()
+    try:
+        return db.get(Comment, comment_id)
+    finally:
+        db.close()
+
+
+# --------------------------------------------------------------------------
+# (h) Rollensystem (Web-UI)
+# --------------------------------------------------------------------------
+def test_normal_user_no_users_access():
+    _make_user("rolle_user")
+    client = _login("rolle_user")
+    # Kein Zugriff auf die Benutzerverwaltung -> Redirect (Forbidden -> /)
+    r = client.get("/users", follow_redirects=False)
+    assert r.status_code == 303
+    assert r.headers["location"] == "/"
+
+
+def test_normal_user_cannot_create_user():
+    _make_user("rolle_user2")
+    client = _login("rolle_user2")
+    before = _user_count()
+    r = client.post("/users/create",
+                    data={"username": "heimlich", "password": "geheim12345",
+                          "password2": "geheim12345", "role": ROLE_USER},
+                    follow_redirects=False)
+    assert r.status_code == 303
+    assert r.headers["location"] == "/"
+    assert _user_count() == before
+
+
+def test_normal_user_no_nav_link():
+    _make_user("rolle_user3")
+    client = _login("rolle_user3")
+    page = client.get("/")
+    assert 'href="/users"' not in page.text
+
+
+def test_admin_sees_nav_link(logged_in):
+    page = logged_in.get("/")
+    assert 'href="/users"' in page.text
+
+
+def test_admin_can_create_user_with_role(logged_in):
+    r = logged_in.post("/users/create",
+                       data={"username": "neuer_admin", "password": "geheim12345",
+                             "password2": "geheim12345", "role": ROLE_ADMIN},
+                       follow_redirects=False)
+    assert r.status_code == 303
+    db = SessionLocal()
+    try:
+        u = db.scalar(select(User).where(User.username == "neuer_admin"))
+        assert u is not None and u.role == ROLE_ADMIN
+    finally:
+        db.close()
+
+
+def test_change_role(logged_in):
+    uid = _make_user("hochstufen", role=ROLE_USER)
+    r = logged_in.post(f"/users/{uid}/role", data={"role": ROLE_ADMIN},
+                       follow_redirects=False)
+    assert r.status_code == 303
+    db = SessionLocal()
+    try:
+        assert db.get(User, uid).role == ROLE_ADMIN
+    finally:
+        db.close()
+
+
+def test_cannot_demote_last_admin(logged_in):
+    # Sicherstellen, dass "admin" der einzige Admin ist (alle anderen -> user)
+    db = SessionLocal()
+    try:
+        admins = db.execute(select(User).where(User.role == ROLE_ADMIN)).scalars().all()
+        for a in admins:
+            if a.username != "admin":
+                a.role = ROLE_USER
+        admin_id = db.scalar(select(User.id).where(User.username == "admin"))
+        db.commit()
+    finally:
+        db.close()
+    r = logged_in.post(f"/users/{admin_id}/role", data={"role": ROLE_USER},
+                       follow_redirects=False)
+    assert r.status_code == 303
+    db = SessionLocal()
+    try:
+        assert db.get(User, admin_id).role == ROLE_ADMIN  # weiterhin Admin
     finally:
         db.close()
 

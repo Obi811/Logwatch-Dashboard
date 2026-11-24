@@ -2,8 +2,9 @@
 {% block title %}Benutzer – LogWatch Dashboard{% endblock %}
 {% block content %}
 <h1>Benutzerverwaltung</h1>
-<p class="muted">Interne Dashboard-Konten (Admin/Mitarbeiter). Alle Konten sehen
-alle Maschinen – es gibt keine getrennten Rollen.</p>
+<p class="muted">Interne Dashboard-Konten. <strong>Administratoren</strong> dürfen
+Benutzer verwalten (anlegen, Rolle/Passwort ändern, löschen); <strong>Benutzer</strong>
+dürfen alle Seiten ansehen und Meldungen kommentieren, aber keine Benutzer verwalten.</p>
 
 <section class="panel">
   <h2>Neuen Benutzer anlegen</h2>
@@ -21,6 +22,12 @@ alle Maschinen – es gibt keine getrennten Rollen.</p>
         <input type="password" name="password2" required minlength="{{ min_pw_len }}"
                autocomplete="new-password">
       </label>
+      <label>Rolle
+        <select name="role">
+          <option value="{{ ROLE_USER }}" selected>Benutzer</option>
+          <option value="{{ ROLE_ADMIN }}">Admin</option>
+        </select>
+      </label>
     </div>
     <button type="submit" class="btn primary">Benutzer anlegen</button>
     <p class="hint">Mindestens {{ min_pw_len }} Zeichen. Erlaubte Zeichen im
@@ -32,12 +39,21 @@ alle Maschinen – es gibt keine getrennten Rollen.</p>
   <h2>Vorhandene Benutzer ({{ users|length }})</h2>
   <table class="grid">
     <thead>
-      <tr><th>Benutzername</th><th>Angelegt</th><th>Passwort ändern</th><th></th></tr>
+      <tr><th>Benutzername</th><th>Rolle</th><th>Angelegt</th><th>Passwort ändern</th><th></th></tr>
     </thead>
     <tbody>
     {% for u in users %}
       <tr>
         <td>{{ u.username }}{% if u.username == user %} <span class="badge">du</span>{% endif %}</td>
+        <td>
+          <form class="inline" method="post" action="/users/{{ u.id }}/role">
+            <select name="role">
+              <option value="{{ ROLE_USER }}"{% if u.role != ROLE_ADMIN %} selected{% endif %}>Benutzer</option>
+              <option value="{{ ROLE_ADMIN }}"{% if u.role == ROLE_ADMIN %} selected{% endif %}>Admin</option>
+            </select>
+            <button type="submit" class="btn small">Setzen</button>
+          </form>
+        </td>
         <td>{{ u.created_at.strftime("%d.%m.%Y %H:%M") if u.created_at else "–" }}</td>
         <td>
           <form class="inline" method="post" action="/users/{{ u.id }}/password" autocomplete="off">
