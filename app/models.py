@@ -45,6 +45,12 @@ class Machine(Base):
     last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     notes: Mapped[str] = mapped_column(Text, default="")
 
+    # Quittierung einer Kopier-Warnung (für die App-/REST-API). Ist ein Zeitpunkt
+    # gesetzt, gilt die Kopier-Warnung dieser Maschine als quittiert.
+    copy_warning_ack_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True)
+    copy_warning_ack_by: Mapped[str | None] = mapped_column(String(100), nullable=True)
+
     fingerprints: Mapped[list["HardwareFingerprint"]] = relationship(
         back_populates="machine", cascade="all, delete-orphan")
     reports: Mapped[list["ErrorReport"]] = relationship(

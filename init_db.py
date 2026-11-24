@@ -10,13 +10,31 @@ from __future__ import annotations
 
 import sys
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from app.auth import hash_password
 from app.db import Base, SessionLocal, engine
 from app.models import User  # noqa: F401 – sorgt für Tabellen-Registrierung
 from app.models import ErrorReport, HardwareFingerprint, Machine  # noqa: F401
 from app.settings import get_settings
+
+
+def _ensure_columns() -> None:
+    """Rückwärtskompatible Mini-Migrationen für bereits bestehende Tabellen.
+
+    ``create_all`` legt nur fehlende Tabellen an, ergänzt aber KEINE neuen
+    Spalten in vorhandenen Tabellen. Hier werden daher neu hinzugekommene
+    Spalten idempotent per ``ADD COLUMN IF NOT EXISTS`` nachgezogen (PostgreSQL).
+    """
+    if not engine.url.get_backend_name().startswith("postgresql"):
+        return  # SQLite (Tests) bekommt die Spalten über create_all().
+    statements = [
+        "ALTER TABLE machines ADD COLUMN IF NOT EXISTS copy_warning_ack_at TIMESTAMPTZ",
+        "ALTER TABLE machines ADD COLUMN IF NOT EXISTS copy_warning_ack_by VARCHAR(100)",
+    ]
+    with engine.begin() as conn:
+        for stmt in statements:
+            conn.execute(text(stmt))
 
 
 def main() -> int:
@@ -27,6 +45,7 @@ def main() -> int:
 
     print("Lege Tabellen an (falls nicht vorhanden) ...")
     Base.metadata.create_all(bind=engine)
+    _ensure_columns()
     print("Schema ist aktuell.")
 
     db = SessionLocal()

@@ -8,6 +8,27 @@ und das Projekt folgt der [Semantischen Versionierung](https://semver.org/lang/d
 
 ## [Unveröffentlicht]
 ### Hinzugefügt
+- **App-/REST-API (`/api/v1`, JSON)** als Backend für eine mobile App
+  (`app/api.py`, `app/api_auth.py`). Getrennt vom Session-basierten Web-UI und
+  **token-authentifiziert**: `POST /api/v1/auth/login` prüft Benutzername/Passwort
+  gegen die bestehende Benutzer-Tabelle und liefert einen signierten Bearer-Token
+  (`itsdangerous`/`SECRET_KEY`, 30 Tage gültig, enthält die `user_id`). Alle
+  weiteren Endpunkte verlangen `Authorization: Bearer <token>` (sonst HTTP 401
+  mit deutscher Meldung; der Token wird nie geloggt). Endpunkte: `GET /me`,
+  `GET /overview`, `GET /machines` (+ `?q=`), `GET /machines/{id}`,
+  `GET /warnings` (+ `?status=open|acknowledged`),
+  `POST /warnings/{machine_id}/acknowledge` (Kopier-Warnung quittieren),
+  `GET /reports` (paginierbar via `?limit=&offset=`, optional `?status=&machine_id=`)
+  und `GET /reports/{id}`. Alle Antworten nutzen **Pydantic-Response-Modelle**.
+- **Quittieren von Kopier-Warnungen:** Neue, rückwärtskompatible Spalten
+  `copy_warning_ack_at` / `copy_warning_ack_by` an der Tabelle `machines`
+  (per `ADD COLUMN IF NOT EXISTS` in `init_db.py` nachgezogen).
+- **OpenAPI/Swagger aktiviert** (`/docs`, `/redoc`, `/openapi.json`): alle
+  `/api/v1`-Routen erscheinen dort mit deutschen Beschreibungen, Tags und
+  Response-Modellen – als Referenz für die App-Entwicklung.
+- **CORS für die App-API** (`CORSMiddleware`) mit neuer Umgebungsvariable
+  `API_CORS_ORIGINS` (komma-separiert, Standard `*`), konfigurierbar in
+  `settings.py`.
 - **Benutzerverwaltung im UI** (`/users`): eingeloggte Admins/Mitarbeiter können
   weitere Dashboard-Konten **anlegen**, deren **Passwort ändern** und Konten
   **löschen**. Schutzregeln: Benutzernamen sind eindeutig (unabhängig von

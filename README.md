@@ -91,6 +91,7 @@ Siehe `.env.example`. Die echte `.env` wird **nicht** eingecheckt.
 | `UPLOAD_DIR` | (optional) Verzeichnis für Logdateien (Standard `data/uploads`). |
 | `GITHUB_PAT` | (optional) GitHub-Token für den Update-Hinweis. Nur nötig, wenn das Dashboard-Repo **privat** ist. Wird nie geloggt. |
 | `UPDATE_CHECK_ENABLED` | (optional) Update-Hinweis an/aus (Standard `1`). Auf `0` setzen, um die GitHub-Abfrage abzuschalten. |
+| `API_CORS_ORIGINS` | (optional) Erlaubte Ursprünge (Origins) für die App-/REST-API, komma-separiert. Standard `*` (jeder Ursprung). Für den Produktivbetrieb eng setzen, z.B. `https://app.example.com,https://admin.example.com`. |
 
 ## Lokale Entwicklung
 
@@ -136,6 +137,66 @@ nicht berührt.
 
 Die App läuft auf `127.0.0.1:8070`; nginx terminiert die öffentliche HTTPS-URL und
 reicht sie als Plain-HTTP weiter. Der echte Public-Host kommt über `X-Original-Host`.
+
+## API für Apps (REST, `/api/v1`)
+
+Zusätzlich zum Web-UI (Session-Login) stellt das Dashboard eine **token-basierte
+JSON-REST-API** bereit, die als Backend für eine mobile App dient. Sie ist
+vollständig getrennt vom Web-UI; letzteres bleibt unverändert.
+
+- **Basis-URL:** `https://logwatch-dash.abacusai.cloud/api/v1`
+- **Interaktive Referenz (Swagger):** `https://logwatch-dash.abacusai.cloud/docs`
+  (OpenAPI-JSON unter `/openapi.json`). Alle Endpunkte sind dort mit deutschen
+  Beschreibungen, Tags und Response-Modellen dokumentiert.
+
+### Authentifizierung (Bearer-Token)
+
+1. **Anmelden:** `POST /api/v1/auth/login` mit JSON-Body
+   `{"username": "...", "password": "..."}`. Geprüft wird gegen dieselbe
+   Benutzer-Tabelle wie beim Web-Login.
+2. Antwort: `{"access_token": "...", "token_type": "bearer", "expires_in": 2592000}`
+   (Token signiert mit `itsdangerous`/`SECRET_KEY`, gültig **30 Tage**,
+   enthält die `user_id`).
+3. **Alle weiteren Aufrufe** senden den Header `Authorization: Bearer <token>`.
+   Fehlt der Token oder ist er ungültig/abgelaufen, antwortet die API mit
+   **HTTP 401** und einer deutschen Fehlermeldung. Der Token wird nie geloggt.
+
+Beispiel:
+
+```bash
+# Token holen
+TOKEN=$(curl -s -X POST https://logwatch-dash.abacusai.cloud/api/v1/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"Obi811","password":"<passwort>"}' | jq -r .access_token)
+
+# Geschützten Endpunkt abrufen
+curl -s https://logwatch-dash.abacusai.cloud/api/v1/overview \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+### Endpunkte
+
+| Methode & Pfad | Beschreibung |
+|---|---|
+| `POST /api/v1/auth/login` | Anmelden, liefert Bearer-Token (öffentlich). |
+| `GET /api/v1/me` | Angemeldeten Benutzer (`id`, `username`) abrufen. |
+| `GET /api/v1/overview` | Kennzahlen: Maschinen, offene/abgeschlossene Berichte, Kopier-Warnungen, letzte Berichte. |
+| `GET /api/v1/machines` | Liste aller Maschinen (optional `?q=` Suche) inkl. Bericht-Zählern. |
+| `GET /api/v1/machines/{id}` | Maschinen-Detail inkl. Hardware-Fingerprints und Berichten. |
+| `GET /api/v1/warnings` | Kopier-Warnungen (optional `?status=open` / `?status=acknowledged`). |
+| `POST /api/v1/warnings/{machine_id}/acknowledge` | Kopier-Warnung einer Maschine quittieren. |
+| `GET /api/v1/reports` | Fehlerberichte, paginierbar (`?limit=&offset=`, optional `?status=&machine_id=`). |
+| `GET /api/v1/reports/{id}` | Fehlerbericht-Detail inkl. Fehlerzeilen. |
+
+> Hinweis: `POST /api/v1/reports` ist weiterhin der **Upload-Endpunkt der
+> Windows-Clients** (per `X-Upload-Token`, siehe nächster Abschnitt) – er ist von
+> der App-Authentifizierung unberührt.
+
+### CORS
+
+Die API erlaubt den Zugriff aus einer App von einer anderen Origin. Die erlaubten
+Ursprünge werden über die Umgebungsvariable `API_CORS_ORIGINS` gesteuert
+(Standard `*`; siehe Tabelle oben). Für den Produktivbetrieb eng setzen.
 
 ## Upload-API-Vertrag (Client ↔ Dashboard)
 

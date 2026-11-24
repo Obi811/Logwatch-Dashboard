@@ -20,6 +20,14 @@ class Settings:
         self.upload_token = os.environ.get("UPLOAD_TOKEN", "")
         self.secret_key = os.environ.get("SECRET_KEY", "dev-insecure-secret-change-me")
         self.public_host = os.environ.get("PUBLIC_HOST", "")
+        # Erlaubte CORS-Origins für die App-/REST-API (komma-separiert).
+        # Default "*" erlaubt am Anfang jeden Ursprung; später eng setzen
+        # (z.B. "https://app.example.com,https://admin.example.com").
+        raw_origins = os.environ.get("API_CORS_ORIGINS", "*").strip()
+        self.api_cors_origins = (
+            ["*"] if raw_origins in ("", "*")
+            else [o.strip() for o in raw_origins.split(",") if o.strip()]
+        )
         # Optionales GitHub-Token für die Update-Prüfung (nötig nur bei privatem Repo).
         self.github_pat = os.environ.get("GITHUB_PAT", "").strip()
         # Update-Hinweis (Variante 1) – standardmäßig aktiv; in Tests/Offline abschaltbar.

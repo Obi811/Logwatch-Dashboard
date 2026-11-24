@@ -16,6 +16,7 @@ from fastapi import Depends, FastAPI, Form, HTTPException, Request, UploadFile
 from fastapi.responses import (
     FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response,
 )
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
@@ -25,6 +26,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from .auth import (
     current_user, hash_password, login_user, logout_user, verify_password,
 )
+from .api import router as api_router
 from .db import get_db
 from .models import (
     STATUS_CLOSED, STATUS_OPEN, ErrorReport, HardwareFingerprint, Machine, User,
@@ -35,8 +37,29 @@ from .version_check import cached_update_check
 _settings = get_settings()
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-app = FastAPI(title="LogWatch Dashboard", docs_url=None, redoc_url=None, openapi_url=None)
+# /docs + /openapi.json sind aktiv, damit App-Entwickler eine klare API-Referenz
+# haben (Swagger-UI). Das Web-UI bleibt unverändert session-basiert.
+app = FastAPI(
+    title="LogWatch Dashboard",
+    description="Dashboard-Weboberfläche plus App-/REST-API unter `/api/v1`.",
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_url="/openapi.json",
+)
 app.add_middleware(SessionMiddleware, secret_key=_settings.secret_key, max_age=60 * 60 * 12)
+
+# CORS für die App-/REST-API: erlaubt Zugriff aus einer mobilen App o.ä. von einer
+# anderen Origin. Erlaubte Origins über API_CORS_ORIGINS konfigurierbar.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_settings.api_cors_origins,
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# App-/REST-API (JSON, Token-Auth) einhängen.
+app.include_router(api_router)
 
 templates = Jinja2Templates(directory=os.path.join(_BASE_DIR, "templates"))
 app.mount("/static", StaticFiles(directory=os.path.join(_BASE_DIR, "static")), name="static")
