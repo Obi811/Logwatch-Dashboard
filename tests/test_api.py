@@ -23,11 +23,12 @@ os.environ["UPDATE_CHECK_ENABLED"] = "0"
 os.environ["API_CORS_ORIGINS"] = "*"
 
 from fastapi.testclient import TestClient  # noqa: E402
+from sqlalchemy import select  # noqa: E402
 
 from app.auth import hash_password  # noqa: E402
 from app.db import Base, SessionLocal, engine  # noqa: E402
 from app.main import app  # noqa: E402
-from app.models import User  # noqa: E402
+from app.models import ROLE_ADMIN, ROLE_USER, Comment, User  # noqa: E402
 
 UPLOAD_TOKEN = "test-upload-token"
 
@@ -37,7 +38,8 @@ def _setup_db():
     Base.metadata.create_all(bind=engine)
     db = SessionLocal()
     try:
-        db.add(User(username="admin", password_hash=hash_password("test-admin-pw")))
+        db.add(User(username="admin", password_hash=hash_password("test-admin-pw"),
+                    role=ROLE_ADMIN))
         db.commit()
     finally:
         db.close()
@@ -124,6 +126,7 @@ def test_me_with_valid_token(client):
     body = r.json()
     assert body["username"] == "admin"
     assert isinstance(body["id"], int)
+    assert body["role"] == ROLE_ADMIN
 
 
 def test_protected_without_token(client):
@@ -232,6 +235,87 @@ def test_acknowledge_without_warning_400(client):
 def test_acknowledge_unknown_machine_404(client):
     r = client.post("/api/v1/warnings/GIBTSNICHT/acknowledge", headers=_auth(client))
     assert r.status_code == 404
+
+
+# --------------------------------------------------------------------------
+# Kommentare (REST-API)
+# --------------------------------------------------------------------------
+def _make_user_token(client, username, role=ROLE_USER, password="geheim12345"):
+    """Legt (falls nötig) einen Benutzer an und liefert dessen Bearer-Header."""
+    db = SessionLocal()
+    try:
+        u = db.scalar(select(User).where(User.username == username))
+        if u is None:
+            u = User(username=username, password_hash=hash_password(password), role=role)
+            db.add(u)
+            db.commit()
+    finally:
+        db.close()
+    r = client.post("/api/v1/auth/login", json={"username": username, "password": password})
+    assert r.status_code == 200, r.text
+    return {"Authorization": f"Bearer {r.json()['access_token']}"}
+
+
+def test_api_comment_add_and_list(client):
+    rid = _upload(client, "API-CMT", "HW-C").json()["report_id"]
+    r = client.post(f"/api/v1/reports/{rid}/comments",
+                    json={"body": "API-Kommentar"}, headers=_auth(client))
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["body"] == "API-Kommentar"
+    assert body["author_username"] == "admin"
+
+    lst = client.get(f"/api/v1/reports/{rid}/comments", headers=_auth(client))
+    assert lst.status_code == 200
+    assert any(c["body"] == "API-Kommentar" for c in lst.json())
+
+
+def test_api_comment_empty_rejected(client):
+    rid = _upload(client, "API-CMT-E", "HW-CE").json()["report_id"]
+    r = client.post(f"/api/v1/reports/{rid}/comments",
+                    json={"body": "   "}, headers=_auth(client))
+    assert r.status_code == 400
+
+
+def test_api_comment_author_deletes_own(client):
+    rid = _upload(client, "API-CMT-D", "HW-CD").json()["report_id"]
+    author = _make_user_token(client, "api_autor")
+    cr = client.post(f"/api/v1/reports/{rid}/comments",
+                     json={"body": "lösch mich"}, headers=author)
+    cid = cr.json()["id"]
+    r = client.delete(f"/api/v1/comments/{cid}", headers=author)
+    assert r.status_code == 200
+    db = SessionLocal()
+    try:
+        assert db.get(Comment, cid) is None
+    finally:
+        db.close()
+
+
+def test_api_comment_stranger_forbidden(client):
+    rid = _upload(client, "API-CMT-S", "HW-CS").json()["report_id"]
+    owner = _make_user_token(client, "api_owner")
+    cr = client.post(f"/api/v1/reports/{rid}/comments",
+                     json={"body": "nicht anfassen"}, headers=owner)
+    cid = cr.json()["id"]
+    stranger = _make_user_token(client, "api_fremder")
+    r = client.delete(f"/api/v1/comments/{cid}", headers=stranger)
+    assert r.status_code == 403
+    db = SessionLocal()
+    try:
+        assert db.get(Comment, cid) is not None
+    finally:
+        db.close()
+
+
+def test_api_comment_admin_deletes_any(client):
+    rid = _upload(client, "API-CMT-A", "HW-CA").json()["report_id"]
+    author = _make_user_token(client, "api_autor2")
+    cr = client.post(f"/api/v1/reports/{rid}/comments",
+                     json={"body": "admin löscht"}, headers=author)
+    cid = cr.json()["id"]
+    r = client.delete(f"/api/v1/comments/{cid}", headers=_auth(client))  # admin
+    assert r.status_code == 200
 
 
 # --------------------------------------------------------------------------

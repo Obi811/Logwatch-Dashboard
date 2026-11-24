@@ -27,9 +27,10 @@ from .auth import (
     current_user, hash_password, login_user, logout_user, verify_password,
 )
 from .api import router as api_router
-from .db import get_db
+from .db import SessionLocal, get_db
 from .models import (
-    STATUS_CLOSED, STATUS_OPEN, ErrorReport, HardwareFingerprint, Machine, User,
+    ROLE_ADMIN, ROLE_USER, ROLES, STATUS_CLOSED, STATUS_OPEN,
+    Comment, ErrorReport, HardwareFingerprint, Machine, User,
 )
 from .settings import get_settings
 from .version_check import cached_update_check
@@ -72,6 +73,10 @@ class NotAuthenticated(Exception):
     """Wird geworfen, wenn eine geschützte Seite ohne Login aufgerufen wird."""
 
 
+class Forbidden(Exception):
+    """Wird geworfen, wenn eine Admin-Seite von einem Nicht-Admin aufgerufen wird."""
+
+
 def require_user(request: Request) -> str:
     user = current_user(request)
     if not user:
@@ -79,9 +84,33 @@ def require_user(request: Request) -> str:
     return user
 
 
+def require_admin(request: Request, db: Session = Depends(get_db)) -> User:
+    """Dependency: verlangt eine angemeldete Sitzung MIT Admin-Rolle.
+
+    Liefert das ``User``-Objekt des eingeloggten Admins. Nicht angemeldet →
+    Weiterleitung zum Login; angemeldet aber keine Admin-Rolle → Flash-Fehler
+    und Weiterleitung zur Startseite (``Forbidden``).
+    """
+    username = current_user(request)
+    if not username:
+        raise NotAuthenticated()
+    u = db.scalar(select(User).where(User.username == username))
+    if u is None:
+        raise NotAuthenticated()
+    if u.role != ROLE_ADMIN:
+        raise Forbidden()
+    return u
+
+
 @app.exception_handler(NotAuthenticated)
 async def _not_auth_handler(request: Request, exc: NotAuthenticated):
     return RedirectResponse("/login", status_code=303)
+
+
+@app.exception_handler(Forbidden)
+async def _forbidden_handler(request: Request, exc: Forbidden):
+    flash(request, "Diese Seite ist nur für Administratoren zugänglich.", "error")
+    return RedirectResponse("/", status_code=303)
 
 
 def _utcnow() -> datetime:
@@ -104,10 +133,23 @@ def _pop_flashes(request: Request) -> list[dict]:
     return msgs if isinstance(msgs, list) else []
 
 
+def _is_admin_username(username: str | None) -> bool:
+    """Prüft (per kurzlebiger Session), ob ``username`` die Admin-Rolle hat."""
+    if not username:
+        return False
+    db = SessionLocal()
+    try:
+        u = db.scalar(select(User).where(User.username == username))
+        return bool(u and u.role == ROLE_ADMIN)
+    finally:
+        db.close()
+
+
 def _ctx(request: Request, user: str, **extra) -> dict:
     ctx = {
         "request": request,
         "user": user,
+        "is_admin": _is_admin_username(user),
         "flashes": _pop_flashes(request),
         "update": cached_update_check(
             enabled=_settings.update_check_enabled,
@@ -189,12 +231,19 @@ _USERNAME_RE = re.compile(r"^[A-Za-z0-9._@+-]{3,100}$")
 _MIN_PASSWORD_LEN = 8
 
 
+def _admin_count(db: Session) -> int:
+    """Anzahl der Benutzer mit Admin-Rolle (für den Letzter-Admin-Schutz)."""
+    return db.scalar(
+        select(func.count(User.id)).where(User.role == ROLE_ADMIN)) or 0
+
+
 @app.get("/users", response_class=HTMLResponse)
-def users_list(request: Request, user: str = Depends(require_user),
+def users_list(request: Request, admin: User = Depends(require_admin),
                db: Session = Depends(get_db)):
     users = db.execute(select(User).order_by(User.username)).scalars().all()
     return templates.TemplateResponse(request, "users.html", _ctx(
-        request, user, users=users, min_pw_len=_MIN_PASSWORD_LEN))
+        request, admin.username, users=users, min_pw_len=_MIN_PASSWORD_LEN,
+        ROLE_ADMIN=ROLE_ADMIN, ROLE_USER=ROLE_USER))
 
 
 @app.post("/users/create")
@@ -202,12 +251,16 @@ def users_create(request: Request,
                  username: str = Form(...),
                  password: str = Form(...),
                  password2: str = Form(...),
-                 user: str = Depends(require_user),
+                 role: str = Form(ROLE_USER),
+                 admin: User = Depends(require_admin),
                  db: Session = Depends(get_db)):
     username = (username or "").strip()
     if not _USERNAME_RE.match(username):
         flash(request, "Ungültiger Benutzername: 3–100 Zeichen, erlaubt sind "
                        "Buchstaben, Ziffern und . _ @ + -", "error")
+        return RedirectResponse("/users", status_code=303)
+    if role not in ROLES:
+        flash(request, "Ungültige Rolle.", "error")
         return RedirectResponse("/users", status_code=303)
     if len(password) < _MIN_PASSWORD_LEN:
         flash(request, f"Das Passwort muss mindestens {_MIN_PASSWORD_LEN} "
@@ -221,9 +274,10 @@ def users_create(request: Request,
         flash(request, f"Der Benutzer „{username}“ existiert bereits.", "error")
         return RedirectResponse("/users", status_code=303)
 
-    db.add(User(username=username, password_hash=hash_password(password)))
+    db.add(User(username=username, password_hash=hash_password(password), role=role))
     db.commit()
-    flash(request, f"Benutzer „{username}“ wurde angelegt.", "success")
+    rolle = "Administrator" if role == ROLE_ADMIN else "Benutzer"
+    flash(request, f"Benutzer „{username}“ ({rolle}) wurde angelegt.", "success")
     return RedirectResponse("/users", status_code=303)
 
 
@@ -231,7 +285,7 @@ def users_create(request: Request,
 def users_change_password(user_id: int, request: Request,
                           password: str = Form(...),
                           password2: str = Form(...),
-                          user: str = Depends(require_user),
+                          admin: User = Depends(require_admin),
                           db: Session = Depends(get_db)):
     target = db.get(User, user_id)
     if target is None:
@@ -249,19 +303,52 @@ def users_change_password(user_id: int, request: Request,
     return RedirectResponse("/users", status_code=303)
 
 
+@app.post("/users/{user_id}/role")
+def users_change_role(user_id: int, request: Request,
+                      role: str = Form(...),
+                      admin: User = Depends(require_admin),
+                      db: Session = Depends(get_db)):
+    target = db.get(User, user_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail="Benutzer nicht gefunden")
+    if role not in ROLES:
+        flash(request, "Ungültige Rolle.", "error")
+        return RedirectResponse("/users", status_code=303)
+    # Letzter-Admin-Schutz: der einzige verbleibende Admin darf nicht herabgestuft
+    # werden, sonst käme niemand mehr an die Benutzerverwaltung.
+    if (target.role == ROLE_ADMIN and role != ROLE_ADMIN
+            and _admin_count(db) <= 1):
+        flash(request, "Der letzte verbleibende Administrator kann nicht "
+                       "herabgestuft werden.", "error")
+        return RedirectResponse("/users", status_code=303)
+    if target.role == role:
+        flash(request, f"„{target.username}“ hat diese Rolle bereits.", "error")
+        return RedirectResponse("/users", status_code=303)
+    target.role = role
+    db.commit()
+    rolle = "Administrator" if role == ROLE_ADMIN else "Benutzer"
+    flash(request, f"Rolle von „{target.username}“ auf {rolle} geändert.", "success")
+    return RedirectResponse("/users", status_code=303)
+
+
 @app.post("/users/{user_id}/delete")
 def users_delete(user_id: int, request: Request,
-                 user: str = Depends(require_user),
+                 admin: User = Depends(require_admin),
                  db: Session = Depends(get_db)):
     target = db.get(User, user_id)
     if target is None:
         raise HTTPException(status_code=404, detail="Benutzer nicht gefunden")
-    if target.username == user:
+    if target.username == admin.username:
         flash(request, "Du kannst dein eigenes Konto nicht löschen.", "error")
         return RedirectResponse("/users", status_code=303)
     total = db.scalar(select(func.count(User.id))) or 0
     if total <= 1:
         flash(request, "Der letzte verbleibende Benutzer kann nicht gelöscht werden.", "error")
+        return RedirectResponse("/users", status_code=303)
+    # Letzter-Admin-Schutz: den einzigen Admin nicht löschen.
+    if target.role == ROLE_ADMIN and _admin_count(db) <= 1:
+        flash(request, "Der letzte verbleibende Administrator kann nicht "
+                       "gelöscht werden.", "error")
         return RedirectResponse("/users", status_code=303)
     name = target.username
     db.delete(target)
@@ -390,14 +477,64 @@ def report_detail(report_id: int, request: Request,
         raise HTTPException(status_code=404, detail="Fehlerbericht nicht gefunden")
     machine = db.get(Machine, report.machine_id)
     lines = report.error_lines.split("\n") if report.error_lines else []
+    comments = db.execute(
+        select(Comment).where(Comment.report_id == report_id)
+        .order_by(Comment.created_at)
+    ).scalars().all()
+    # Autor-Benutzernamen für die Anzeige (auch wenn ein Autor zwischenzeitlich
+    # gelöscht wurde, zeigt das Template dann „unbekannt“).
+    me = db.scalar(select(User).where(User.username == user))
     return templates.TemplateResponse(request, "report_detail.html", _ctx(
         request, user,
         report=report,
         machine=machine,
         lines=lines,
+        comments=comments,
+        current_user_id=(me.id if me else None),
         STATUS_OPEN=STATUS_OPEN,
         STATUS_CLOSED=STATUS_CLOSED,
     ))
+
+
+@app.post("/reports/{report_id}/comments")
+def comment_add(report_id: int, request: Request,
+                body: str = Form(...), user: str = Depends(require_user),
+                db: Session = Depends(get_db)):
+    report = db.get(ErrorReport, report_id)
+    if not report:
+        raise HTTPException(status_code=404, detail="Fehlerbericht nicht gefunden")
+    me = db.scalar(select(User).where(User.username == user))
+    if me is None:
+        raise NotAuthenticated()
+    text_body = (body or "").strip()
+    if not text_body:
+        flash(request, "Der Kommentar darf nicht leer sein.", "error")
+        return RedirectResponse(f"/reports/{report_id}", status_code=303)
+    db.add(Comment(report_id=report_id, user_id=me.id, body=text_body))
+    db.commit()
+    flash(request, "Kommentar wurde hinzugefügt.", "success")
+    return RedirectResponse(f"/reports/{report_id}", status_code=303)
+
+
+@app.post("/comments/{comment_id}/delete")
+def comment_delete(comment_id: int, request: Request,
+                   user: str = Depends(require_user),
+                   db: Session = Depends(get_db)):
+    comment = db.get(Comment, comment_id)
+    if comment is None:
+        raise HTTPException(status_code=404, detail="Kommentar nicht gefunden")
+    report_id = comment.report_id
+    me = db.scalar(select(User).where(User.username == user))
+    if me is None:
+        raise NotAuthenticated()
+    # Löschen darf nur der Autor selbst oder ein Administrator.
+    if comment.user_id != me.id and me.role != ROLE_ADMIN:
+        flash(request, "Du darfst nur eigene Kommentare löschen.", "error")
+        return RedirectResponse(f"/reports/{report_id}", status_code=303)
+    db.delete(comment)
+    db.commit()
+    flash(request, "Kommentar wurde gelöscht.", "success")
+    return RedirectResponse(f"/reports/{report_id}", status_code=303)
 
 
 @app.post("/reports/{report_id}/close")

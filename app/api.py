@@ -23,7 +23,8 @@ from .api_auth import create_access_token, get_current_api_user
 from .auth import verify_password
 from .db import get_db
 from .models import (
-    STATUS_CLOSED, STATUS_OPEN, ErrorReport, HardwareFingerprint, Machine, User,
+    ROLE_ADMIN, STATUS_CLOSED, STATUS_OPEN, Comment, ErrorReport,
+    HardwareFingerprint, Machine, User,
 )
 
 router = APIRouter(prefix="/api/v1")
@@ -46,6 +47,20 @@ class TokenResponse(BaseModel):
 class UserResponse(BaseModel):
     id: int
     username: str
+    role: str = Field(..., description="Rolle des Benutzers: 'admin' oder 'user'")
+
+
+class CommentResponse(BaseModel):
+    id: int
+    report_id: int
+    user_id: int
+    author_username: str = Field(..., description="Benutzername des Autors")
+    body: str = Field(..., description="Kommentartext")
+    created_at: Optional[datetime]
+
+
+class CommentCreate(BaseModel):
+    body: str = Field(..., min_length=1, description="Kommentartext (darf nicht leer sein)")
 
 
 class OverviewResponse(BaseModel):
@@ -188,8 +203,8 @@ def api_login(body: LoginRequest, db: Session = Depends(get_db)) -> TokenRespons
 @router.get("/me", response_model=UserResponse, tags=["Authentifizierung"],
             summary="Angemeldeten Benutzer abrufen")
 def api_me(user: User = Depends(get_current_api_user)) -> UserResponse:
-    """Gibt den zum Bearer-Token gehörenden Benutzer zurück."""
-    return UserResponse(id=user.id, username=user.username)
+    """Gibt den zum Bearer-Token gehörenden Benutzer zurück (inkl. Rolle)."""
+    return UserResponse(id=user.id, username=user.username, role=user.role)
 
 
 # ===========================================================================
@@ -412,3 +427,70 @@ def api_report_detail(report_id: int,
         has_logfile=has_logfile,
         closed_at=r.closed_at, closed_by=r.closed_by, note=r.note or "",
     )
+
+
+# ===========================================================================
+# Kommentare (an Fehlerberichte/Meldungen)
+# ===========================================================================
+def _comment_response(c: Comment) -> CommentResponse:
+    return CommentResponse(
+        id=c.id, report_id=c.report_id, user_id=c.user_id,
+        author_username=(c.author.username if c.author else "unbekannt"),
+        body=c.body, created_at=c.created_at,
+    )
+
+
+@router.get("/reports/{report_id}/comments", response_model=List[CommentResponse],
+            tags=["Kommentare"], summary="Kommentare eines Fehlerberichts auflisten")
+def api_report_comments(report_id: int,
+                        user: User = Depends(get_current_api_user),
+                        db: Session = Depends(get_db)) -> List[CommentResponse]:
+    """Alle Kommentare eines Fehlerberichts (chronologisch, älteste zuerst)."""
+    r = db.get(ErrorReport, report_id)
+    if not r:
+        raise HTTPException(status_code=404, detail="Fehlerbericht nicht gefunden.")
+    rows = db.execute(
+        select(Comment).where(Comment.report_id == report_id)
+        .order_by(Comment.created_at)
+    ).scalars().all()
+    return [_comment_response(c) for c in rows]
+
+
+@router.post("/reports/{report_id}/comments", response_model=CommentResponse,
+             status_code=201, tags=["Kommentare"],
+             summary="Kommentar zu einem Fehlerbericht anlegen")
+def api_add_comment(report_id: int, body: CommentCreate,
+                    user: User = Depends(get_current_api_user),
+                    db: Session = Depends(get_db)) -> CommentResponse:
+    """Legt einen Kommentar am Fehlerbericht an. Autor ist der Token-Benutzer."""
+    r = db.get(ErrorReport, report_id)
+    if not r:
+        raise HTTPException(status_code=404, detail="Fehlerbericht nicht gefunden.")
+    text_body = (body.body or "").strip()
+    if not text_body:
+        raise HTTPException(status_code=400,
+                            detail="Der Kommentar darf nicht leer sein.")
+    comment = Comment(report_id=report_id, user_id=user.id, body=text_body)
+    db.add(comment)
+    db.commit()
+    db.refresh(comment)
+    return _comment_response(comment)
+
+
+@router.delete("/comments/{comment_id}", tags=["Kommentare"],
+               summary="Kommentar löschen (Autor oder Admin)")
+def api_delete_comment(comment_id: int,
+                       user: User = Depends(get_current_api_user),
+                       db: Session = Depends(get_db)) -> dict:
+    """Löscht einen Kommentar. Erlaubt nur dem Autor selbst oder einem Admin;
+    andernfalls HTTP 403 mit deutscher Meldung."""
+    comment = db.get(Comment, comment_id)
+    if comment is None:
+        raise HTTPException(status_code=404, detail="Kommentar nicht gefunden.")
+    if comment.user_id != user.id and user.role != ROLE_ADMIN:
+        raise HTTPException(
+            status_code=403,
+            detail="Du darfst nur eigene Kommentare löschen.")
+    db.delete(comment)
+    db.commit()
+    return {"status": "ok"}

@@ -103,3 +103,22 @@ def get_current_api_user(
             detail="Der zugehörige Benutzer existiert nicht mehr.",
         )
     return user
+
+
+def get_current_admin_api_user(
+    user: User = Depends(get_current_api_user),
+) -> User:
+    """FastAPI-Dependency: wie ``get_current_api_user``, verlangt aber zusätzlich
+    die Rolle ``admin``.
+
+    Für Endpunkte, die nur Administratoren vorbehalten sind. Normale Benutzer
+    erhalten ``HTTPException(403)`` mit deutscher Meldung.
+    """
+    from .models import ROLE_ADMIN
+
+    if user.role != ROLE_ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Diese Aktion ist Administratoren vorbehalten.",
+        )
+    return user

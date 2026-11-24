@@ -10,10 +10,20 @@ die Fehler-Historie, mögliche Raubkopien und Auswertungen.
 - **Interner Login** (Session-Cookie): nur wenige Admin-/Mitarbeiter-Konten, die
   **alle** Maschinen sehen. Kein Kunden-Self-Service, kein Mandanten-Modell.
   Firma/Kunde wird je Maschine gespeichert (für Gruppierung/Filter).
-- **Benutzerverwaltung** (`/users`): eingeloggte Konten können weitere
-  Dashboard-Benutzer anlegen, deren Passwort ändern und Konten löschen.
-  Benutzernamen sind eindeutig, Passwörter mindestens 8 Zeichen; das eigene
-  Konto und der letzte verbleibende Benutzer sind vor dem Löschen geschützt.
+- **Rollensystem (Admin / Benutzer)**: jedes Konto hat eine Rolle (`admin` oder
+  `user`, Standard `user`). **Admins** dürfen alles inklusive der
+  Benutzerverwaltung; **Benutzer** sehen alle Seiten (Übersicht, Maschinen,
+  Warnungen, Meldungen, Statistik) und dürfen kommentieren, aber **nicht** die
+  Benutzerverwaltung öffnen. Details siehe Abschnitt „Rollen & Rechte".
+- **Benutzerverwaltung** (`/users`, nur Admins): Admins können weitere
+  Dashboard-Benutzer anlegen (inkl. Rollenwahl), deren Passwort ändern, die Rolle
+  umstellen und Konten löschen. Benutzernamen sind eindeutig, Passwörter
+  mindestens 8 Zeichen; das eigene Konto, der letzte verbleibende Benutzer und
+  der letzte verbleibende Admin sind geschützt (letzterer kann weder gelöscht
+  noch herabgestuft werden).
+- **Kommentare an Meldungen**: jeder Fehlerbericht (im UI „Meldung") kann auf der
+  Detailseite kommentiert werden. Kommentare erscheinen mit Autor und Zeitstempel;
+  löschen darf nur der Autor oder ein Admin. Auch über die REST-API verfügbar.
 - **Versions-/Update-Hinweis**: das Dashboard prüft über die GitHub-API, ob eine
   neuere Version veröffentlicht wurde, und zeigt dann einen dezenten Hinweis mit
   Link zum Release. Kein automatisches Self-Update – aktualisiert wird durch
@@ -44,7 +54,7 @@ die Fehler-Historie, mögliche Raubkopien und Auswertungen.
 
 ### Datenmodell (`app/models.py`)
 
-- `users` – interne Dashboard-Benutzer.
+- `users` – interne Dashboard-Benutzer, mit `role` (`admin`/`user`).
 - `machines` – eine Maschine je `machine_id` (PK), mit `company`, `first_seen`,
   `last_seen`, `notes`.
 - `hardware_fingerprints` – je `(machine_id, hardware_id)` eindeutig; Basis der
@@ -52,16 +62,43 @@ die Fehler-Historie, mögliche Raubkopien und Auswertungen.
 - `error_reports` – einzelne Fehlerberichte mit `status` (`offen`/`abgeschlossen`),
   `closed_at`/`closed_by`/`note`, `timestamp` (Fehler) + `received_at` (Eingang),
   `error_lines`, `error_count`, `log_filename`/`log_path`.
+- `comments` – Kommentare an einem Fehlerbericht; Fremdschlüssel auf
+  `error_reports` und `users` (Kaskaden-Löschung), mit `body` und `created_at`.
+
+## Rollen & Rechte
+
+Jeder Dashboard-Benutzer hat eine Rolle (Spalte `role`):
+
+- **Admin** – voller Zugriff, inklusive der Benutzerverwaltung unter `/users`
+  (Konten anlegen inkl. Rollenwahl, Passwort ändern, Rolle umstellen, löschen)
+  und dem Nav-Punkt „Benutzer".
+- **Benutzer** – sieht alle Auswertungs-Seiten (Übersicht, Maschinen, Warnungen,
+  Meldungen, Statistik) und darf Meldungen kommentieren, hat aber **keinen**
+  Zugriff auf die Benutzerverwaltung (Weiterleitung mit Flash-Fehler im Web,
+  HTTP 403 in der API) und sieht den Nav-Punkt „Benutzer" nicht.
+
+Die Rollenprüfung ist in der wiederverwendbaren Abhängigkeit `require_admin`
+gebündelt (Web-Variante über den Session-User, API-Variante über den
+Token-User). Standardrolle neuer Konten ist „Benutzer". Der **letzte
+verbleibende Admin** kann weder herabgestuft noch gelöscht werden, damit das
+System nie ohne Admin bleibt. Bei der Migration auf das Rollensystem wurden
+bestehende Konten zu Admins befördert (Aussperr-Schutz).
+
+**Kommentare:** Jede Meldung (`error_reports`) kann auf ihrer Detailseite
+kommentiert werden. Ein Kommentar darf nur von seinem **Autor** oder einem
+**Admin** gelöscht werden; leere Kommentare werden abgelehnt.
 
 ## Projektstruktur
 
 ```
 logwatch-dashboard/
 ├─ app/
-│  ├─ main.py            # FastAPI-App, Routen, Upload-API
+│  ├─ main.py            # FastAPI-App, Web-Routen, Upload-API, Kommentare
+│  ├─ api.py             # REST-API (/api/v1): App-Backend + Kommentar-Endpunkte
+│  ├─ api_auth.py        # Token-Auth + require_admin (API)
 │  ├─ settings.py        # Einstellungen aus .env
 │  ├─ db.py              # Engine + Connection-Pool + Session
-│  ├─ models.py          # SQLAlchemy-Datenmodell
+│  ├─ models.py          # SQLAlchemy-Datenmodell (users.role, comments)
 │  ├─ auth.py            # bcrypt + Session-Helfer
 │  ├─ version_check.py   # Update-Hinweis (GitHub-Release-Prüfung, gecacht)
 │  ├─ templates/         # Jinja2-Templates (deutsch)
@@ -69,8 +106,9 @@ logwatch-dashboard/
 ├─ deploy/
 │  ├─ logwatch-dashboard.service   # systemd-Unit
 │  └─ logwatch-dash.conf           # nginx-vhost
-├─ init_db.py            # idempotentes Schema-Init + Seed-Admin
-├─ tests/test_dashboard.py
+├─ init_db.py            # idempotentes Schema-Init + Seed-Admin + Rollen-Migration
+├─ tests/test_dashboard.py         # Web-UI-Tests (inkl. Kommentare + Rollen)
+├─ tests/test_api.py               # REST-API-Tests (inkl. Kommentare + role)
 ├─ requirements.txt
 ├─ .env.example
 └─ .gitignore
@@ -179,7 +217,7 @@ curl -s https://logwatch-dash.abacusai.cloud/api/v1/overview \
 | Methode & Pfad | Beschreibung |
 |---|---|
 | `POST /api/v1/auth/login` | Anmelden, liefert Bearer-Token (öffentlich). |
-| `GET /api/v1/me` | Angemeldeten Benutzer (`id`, `username`) abrufen. |
+| `GET /api/v1/me` | Angemeldeten Benutzer (`id`, `username`, `role`) abrufen. |
 | `GET /api/v1/overview` | Kennzahlen: Maschinen, offene/abgeschlossene Berichte, Kopier-Warnungen, letzte Berichte. |
 | `GET /api/v1/machines` | Liste aller Maschinen (optional `?q=` Suche) inkl. Bericht-Zählern. |
 | `GET /api/v1/machines/{id}` | Maschinen-Detail inkl. Hardware-Fingerprints und Berichten. |
@@ -187,6 +225,9 @@ curl -s https://logwatch-dash.abacusai.cloud/api/v1/overview \
 | `POST /api/v1/warnings/{machine_id}/acknowledge` | Kopier-Warnung einer Maschine quittieren. |
 | `GET /api/v1/reports` | Fehlerberichte, paginierbar (`?limit=&offset=`, optional `?status=&machine_id=`). |
 | `GET /api/v1/reports/{id}` | Fehlerbericht-Detail inkl. Fehlerzeilen. |
+| `GET /api/v1/reports/{id}/comments` | Kommentare einer Meldung (mit Autor + Zeitstempel). |
+| `POST /api/v1/reports/{id}/comments` | Kommentar zu einer Meldung anlegen (leerer Text → 400). |
+| `DELETE /api/v1/comments/{id}` | Kommentar löschen (nur Autor oder Admin, sonst 403). |
 
 > Hinweis: `POST /api/v1/reports` ist weiterhin der **Upload-Endpunkt der
 > Windows-Clients** (per `X-Upload-Token`, siehe nächster Abschnitt) – er ist von

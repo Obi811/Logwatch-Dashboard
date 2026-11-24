@@ -31,10 +31,42 @@ def _ensure_columns() -> None:
     statements = [
         "ALTER TABLE machines ADD COLUMN IF NOT EXISTS copy_warning_ack_at TIMESTAMPTZ",
         "ALTER TABLE machines ADD COLUMN IF NOT EXISTS copy_warning_ack_by VARCHAR(100)",
+        # Rollensystem: neue Spalte `role` an der Benutzer-Tabelle.
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(20) "
+        "NOT NULL DEFAULT 'user'",
     ]
     with engine.begin() as conn:
         for stmt in statements:
             conn.execute(text(stmt))
+
+
+def _ensure_admin_role() -> None:
+    """Sperrschutz bei der Rollen-Migration.
+
+    Beim erstmaligen Hinzufügen der Spalte ``role`` bekämen alle bestehenden
+    Benutzer den Default ``'user'`` – dann gäbe es keinen Admin mehr und niemand
+    käme noch an die Benutzerverwaltung. Daher: existiert noch KEIN Admin, werden
+    alle vorhandenen Benutzer einmalig zu ``'admin'`` hochgestuft. Idempotent –
+    sobald mindestens ein Admin existiert, passiert nichts mehr.
+    """
+    from app.models import ROLE_ADMIN, User
+
+    db = SessionLocal()
+    try:
+        admin_exists = db.scalar(
+            select(User).where(User.role == ROLE_ADMIN).limit(1))
+        if admin_exists is not None:
+            return
+        users = db.execute(select(User)).scalars().all()
+        if not users:
+            return  # Seed-Admin wird später in main() mit Admin-Rolle angelegt.
+        for u in users:
+            u.role = ROLE_ADMIN
+        db.commit()
+        print(f"Rollen-Migration: {len(users)} bestehende(r) Benutzer "
+              "zu 'admin' hochgestuft (Sperrschutz).")
+    finally:
+        db.close()
 
 
 def main() -> int:
@@ -46,6 +78,7 @@ def main() -> int:
     print("Lege Tabellen an (falls nicht vorhanden) ...")
     Base.metadata.create_all(bind=engine)
     _ensure_columns()
+    _ensure_admin_role()
     print("Schema ist aktuell.")
 
     db = SessionLocal()
@@ -60,8 +93,10 @@ def main() -> int:
                   file=sys.stderr)
             return 1
 
+        from app.models import ROLE_ADMIN
         admin = User(username=settings.admin_user,
-                     password_hash=hash_password(settings.admin_password))
+                     password_hash=hash_password(settings.admin_password),
+                     role=ROLE_ADMIN)
         db.add(admin)
         db.commit()
         print(f"Seed-Admin '{settings.admin_user}' wurde angelegt.")
