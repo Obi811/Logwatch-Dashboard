@@ -4,6 +4,8 @@
 <p class="crumbs"><a href="/reports">&larr; Fehlerberichte</a></p>
 <h1>Fehlerbericht #{{ report.id }}</h1>
 
+<div class="detail-grid">
+<div class="detail-aside">
 <div class="statusline">
   {% if report.status == "offen" %}
     <span class="badge open big">offen</span>
@@ -28,14 +30,6 @@
   {% if report.note %}<tr><th>Notiz</th><td>{{ report.note }}</td></tr>{% endif %}
 </table>
 
-<h2>Fehlerzeilen</h2>
-{% if lines %}
-<pre class="loglines">{% for l in lines %}{{ l }}
-{% endfor %}</pre>
-{% else %}
-<p class="muted">Keine Fehlerzeilen übermittelt.</p>
-{% endif %}
-
 <h2>Logdatei</h2>
 {% if report.log_path %}
   <a class="btn" href="/reports/{{ report.id }}/logfile">Logdatei herunterladen
@@ -56,6 +50,15 @@
 <form method="post" action="/reports/{{ report.id }}/reopen" class="actionform">
   <button class="btn" type="submit">Wieder öffnen</button>
 </form>
+{% endif %}
+</div>
+<div class="detail-main">
+<h2>Fehlerzeilen</h2>
+{% if lines %}
+<pre class="loglines">{% for l in lines %}{{ l }}
+{% endfor %}</pre>
+{% else %}
+<p class="muted">Keine Fehlerzeilen übermittelt.</p>
 {% endif %}
 
 <h2>Kommentare ({{ comments|length }})</h2>
@@ -87,4 +90,6 @@
             placeholder="Anmerkung zu dieser Meldung ..."></textarea>
   <button class="btn primary" type="submit">Kommentar speichern</button>
 </form>
+</div>
+</div>
 {% endblock %}

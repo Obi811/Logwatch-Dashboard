@@ -11,15 +11,19 @@
 </div>
 {% endif %}
 
+<div class="detail-grid">
+<div class="detail-aside">
 <table class="kv">
   <tr><th>Firma / Kunde</th><td>{{ machine.company or "—" }}</td></tr>
   <tr><th>Erstmals gesehen</th><td>{{ machine.first_seen.strftime("%d.%m.%Y %H:%M") }}</td></tr>
   <tr><th>Zuletzt gesehen</th><td>{{ machine.last_seen.strftime("%d.%m.%Y %H:%M") }}</td></tr>
   {% if machine.notes %}<tr><th>Notizen</th><td>{{ machine.notes }}</td></tr>{% endif %}
 </table>
-
+</div>
+<div class="detail-main">
 <h2>Bekannte Hardware ({{ fingerprints|length }})</h2>
 {% if fingerprints %}
+<div class="table-wrap">
 <table class="grid">
   <thead><tr><th>Hardware-ID</th><th>TeamViewer-ID</th><th>Hostname</th>
     <th>Erstmals</th><th>Zuletzt</th></tr></thead>
@@ -35,12 +39,14 @@
   {% endfor %}
   </tbody>
 </table>
+</div>
 {% else %}
 <p class="muted">Noch keine Hardware-Informationen.</p>
 {% endif %}
 
 <h2>Fehlerberichte ({{ reports|length }})</h2>
 {% if reports %}
+<div class="table-wrap">
 <table class="grid">
   <thead><tr><th>Zeit</th><th>Fehler</th><th>Status</th><th></th></tr></thead>
   <tbody>
@@ -55,7 +61,10 @@
   {% endfor %}
   </tbody>
 </table>
+</div>
 {% else %}
 <p class="muted">Keine Fehlerberichte für diese Maschine.</p>
 {% endif %}
+</div>
+</div>
 {% endblock %}

@@ -130,6 +130,26 @@ und das Projekt folgt der [Semantischen Versionierung](https://semver.org/lang/d
   Versionsabschnitt überführt, `VERSION` setzt und (mit `--push`) Tag/Commit auslöst.
 
 ### Geändert
+- **Dashboard-weite Layout-/Responsivitäts-Überarbeitung aller Seiten:** Nicht
+  nur die Admin-Formulare, sondern das **gesamte** Dashboard nutzt nun die
+  verfügbare Seitenbreite und stapelt auf dem Smartphone sauber. Zwei
+  wiederverwendbare, gemeinsame CSS-Muster wurden eingeführt:
+  - **`.table-wrap`** – ein Wrapper um breite Datentabellen (`table.grid`), der
+    auf schmalen Viewports **horizontal scrollt**, statt das Seitenlayout zu
+    sprengen oder abzuschneiden. Angewendet auf Übersicht („Neueste
+    Fehlerberichte"), Maschinenliste, Fehlerberichte, Warnungen und Statistik
+    („Top-Maschinen").
+  - **`.detail-grid`** – ein responsives 2-Spalten-Grid für die Detailseiten
+    (Maschinen-Detail, Fehlerbericht-Detail): schmale Meta-/Aktionsspalte links
+    (`table.kv` füllt die Spalte jetzt voll), breiter Hauptinhalt rechts
+    (Hardware/Berichte bzw. Fehlerzeilen + Kommentare). Stapelt auf
+    Viewports ≤ 880 px untereinander. Die **Kommentarfunktion** auf der
+    Fehlerbericht-Detailseite bleibt voll funktionsfähig und gut lesbar.
+  - Die KPI-Kacheln der Übersicht (`.cards`) füllen die Breite bereits per
+    Auto-Fit-Grid (Desktop 4 Spalten, Smartphone 1) und blieben unverändert.
+  - Rein visuell – **keine** Änderung an Feldern, Formularen, Routen oder
+    Datenmodell. Das Stylesheet erhielt einen neuen Cache-Buster (`?v=20261125c`),
+    damit die neue CSS garantiert frisch geladen wird.
 - **Layout der Admin-Seiten überarbeitet** (`/customers`, `/users`,
   `/settings/smtp`): Die Seiten nutzten die verfügbare Breite nicht – alle
   Inhalte lagen in einer schmalen linken Spalte, die rechte Bildschirmhälfte
