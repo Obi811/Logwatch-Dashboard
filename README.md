@@ -152,6 +152,10 @@ Ein Kunde bündelt Maschinen und ist Empfänger der E-Mail-Benachrichtigungen:
 > (Übersicht, Maschinen, Fehlerberichte, Warnungen, Statistik) stecken in einem
 > `.table-wrap`, der auf schmalen Viewports horizontal scrollt, statt das Layout
 > zu sprengen. Auf dem Smartphone stapeln sich alle Spalten sauber untereinander.
+> Auch die **obere Navigationsleiste (Topbar)** ist responsiv: Ab ≤ 820 px
+> bricht sie um – Marke und Benutzerbereich bleiben oben, die Navigationslinks
+> rutschen in eine eigene, mehrzeilige Reihe darunter, statt über den
+> Bildschirmrand hinaus abgeschnitten zu werden.
 
 ## E-Mail-Versand (SMTP)
 
