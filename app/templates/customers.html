@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+{% block title %}Kunden – LogWatch Dashboard{% endblock %}
+{% block content %}
+<h1>Kundenverwaltung</h1>
+<p class="muted">Kunden erhalten (optional) automatische E-Mail-Sammelberichte und
+Sofort-Benachrichtigungen bei neuen Fehlermeldungen ihrer Maschinen. Maschinen
+<strong>ohne</strong> Kundenzuordnung gelten als intern. Ein optionales Dashboard-Login
+für einen Kunden wird in der <a href="/users">Benutzerverwaltung</a> über die Rolle
+„Kunde“ angelegt.</p>
+
+<section class="panel">
+  <h2>Neuen Kunden anlegen</h2>
+  <form class="userform" method="post" action="/customers/create" autocomplete="off">
+    <div class="formrow">
+      <label>Name / Firma
+        <input type="text" name="name" required maxlength="200" placeholder="z. B. Muster GmbH">
+      </label>
+      <label>E-Mail (Empfänger)
+        <input type="email" name="email" required maxlength="255" placeholder="info@muster.de">
+      </label>
+      <label>Ansprechpartner (optional)
+        <input type="text" name="contact" maxlength="200">
+      </label>
+    </div>
+    <div class="formrow">
+      <label>Versand-Intervall
+        <select name="digest_interval">
+          <option value="none" selected>Kein automatischer Versand</option>
+          <option value="weekly">Wöchentlich</option>
+          <option value="monthly">Monatlich</option>
+        </select>
+      </label>
+      <label class="checkbox">
+        <input type="checkbox" name="notify_on_error" value="1" checked>
+        Sofort-Mail bei neuem Fehler
+      </label>
+      <label>Notiz (optional)
+        <input type="text" name="note" maxlength="500">
+      </label>
+    </div>
+    <button type="submit" class="btn primary">Kunde anlegen</button>
+  </form>
+</section>
+
+<section class="panel">
+  <h2>Vorhandene Kunden ({{ rows|length }})</h2>
+  {% if rows %}
+  <table class="grid">
+    <thead>
+      <tr><th>Name / Firma</th><th>E-Mail</th><th>Maschinen</th><th>Logins</th>
+          <th>Versand</th><th>Sofort-Mail</th><th>Aktionen</th></tr>
+    </thead>
+    <tbody>
+    {% for row in rows %}
+      <tr>
+        <td>{{ row.c.name }}{% if row.c.contact %}<br><span class="muted">{{ row.c.contact }}</span>{% endif %}</td>
+        <td>{{ row.c.email }}</td>
+        <td>{{ row.machines }}</td>
+        <td>{{ row.logins }}</td>
+        <td>
+          {% if row.c.digest_interval == "weekly" %}Wöchentlich
+          {% elif row.c.digest_interval == "monthly" %}Monatlich
+          {% else %}—{% endif %}
+        </td>
+        <td>{% if row.c.notify_on_error %}<span class="badge">an</span>{% else %}aus{% endif %}</td>
+        <td>
+          <details>
+            <summary class="btn small">Bearbeiten</summary>
+            <form class="userform" method="post" action="/customers/{{ row.c.id }}/edit" autocomplete="off">
+              <div class="formrow">
+                <label>Name / Firma
+                  <input type="text" name="name" value="{{ row.c.name }}" required maxlength="200">
+                </label>
+                <label>E-Mail
+                  <input type="email" name="email" value="{{ row.c.email }}" required maxlength="255">
+                </label>
+                <label>Ansprechpartner
+                  <input type="text" name="contact" value="{{ row.c.contact or '' }}" maxlength="200">
+                </label>
+              </div>
+              <div class="formrow">
+                <label>Versand-Intervall
+                  <select name="digest_interval">
+                    <option value="none"{% if row.c.digest_interval == "none" %} selected{% endif %}>Kein Versand</option>
+                    <option value="weekly"{% if row.c.digest_interval == "weekly" %} selected{% endif %}>Wöchentlich</option>
+                    <option value="monthly"{% if row.c.digest_interval == "monthly" %} selected{% endif %}>Monatlich</option>
+                  </select>
+                </label>
+                <label class="checkbox">
+                  <input type="checkbox" name="notify_on_error" value="1"{% if row.c.notify_on_error %} checked{% endif %}>
+                  Sofort-Mail bei neuem Fehler
+                </label>
+                <label>Notiz
+                  <input type="text" name="note" value="{{ row.c.note or '' }}" maxlength="500">
+                </label>
+              </div>
+              <button type="submit" class="btn small">Speichern</button>
+            </form>
+          </details>
+          <form class="inline" method="post" action="/customers/{{ row.c.id }}/test-mail"
+                onsubmit="return confirm('Jetzt einen Sammelbericht an „{{ row.c.name }}“ senden?');">
+            <button type="submit" class="btn small">Test-Mail senden</button>
+          </form>
+          <form class="inline" method="post" action="/customers/{{ row.c.id }}/delete"
+                onsubmit="return confirm('Kunde „{{ row.c.name }}“ wirklich löschen? Maschinen werden intern.');">
+            <button type="submit" class="btn small danger">Löschen</button>
+          </form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">Noch keine Kunden angelegt.</p>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <h2>Maschinen zuordnen ({{ machines|length }})</h2>
+  <p class="muted">Jede Maschine kann genau einem Kunden zugeordnet werden. Ohne Kunde
+  gilt die Maschine als intern.</p>
+  {% if machines %}
+  <table class="grid">
+    <thead><tr><th>Maschinen-ID</th><th>Firma (Client)</th><th>Kunde</th></tr></thead>
+    <tbody>
+    {% for m in machines %}
+      <tr>
+        <td>{{ m.machine_id }}</td>
+        <td>{{ m.company or "—" }}</td>
+        <td>
+          <form class="inline" method="post" action="/customers/assign-machine">
+            <input type="hidden" name="machine_id" value="{{ m.machine_id }}">
+            <select name="customer_id">
+              <option value="">— intern (kein Kunde) —</option>
+              {% for c in customers %}
+              <option value="{{ c.id }}"{% if m.customer_id == c.id %} selected{% endif %}>{{ c.name }}</option>
+              {% endfor %}
+            </select>
+            <button type="submit" class="btn small">Zuordnen</button>
+          </form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">Noch keine Maschinen vorhanden.</p>
+  {% endif %}
+</section>
+{% endblock %}

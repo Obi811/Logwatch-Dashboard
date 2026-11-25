@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from sqlalchemy import (
-    String, Text, Integer, DateTime, ForeignKey, Index, UniqueConstraint, func,
+    Boolean, String, Text, Integer, DateTime, ForeignKey, Index, UniqueConstraint, func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -24,29 +24,107 @@ def _utcnow() -> datetime:
 STATUS_OPEN = "offen"
 STATUS_CLOSED = "abgeschlossen"
 
-# Rollen des Rollensystems. "admin" darf die Benutzerverwaltung nutzen,
-# "user" darf alle Seiten ansehen und kommentieren, aber keine Benutzer verwalten.
+# Rollen des Rollensystems.
+#  * "admin" – volle Rechte inkl. Benutzer-/Kundenverwaltung und SMTP-Einstellungen.
+#  * "user"  – sieht alle internen Auswertungs-Seiten und darf kommentieren,
+#              aber keine Benutzer/Kunden verwalten.
+#  * "kunde" – Kunden-Login: sieht NUR die eigenen Maschinen/Meldungen/Statistik
+#              (Übersicht, Maschinen, Fehlerberichte, Statistik). Kein Zugriff auf
+#              Warnungen, Benutzer-/Kundenverwaltung oder SMTP.
 ROLE_ADMIN = "admin"
 ROLE_USER = "user"
-ROLES = (ROLE_ADMIN, ROLE_USER)
+ROLE_KUNDE = "kunde"
+ROLES = (ROLE_ADMIN, ROLE_USER, ROLE_KUNDE)
+
+# Intervalle für den automatischen E-Mail-Sammelversand (Digest) je Kunde.
+DIGEST_NONE = "none"
+DIGEST_WEEKLY = "weekly"
+DIGEST_MONTHLY = "monthly"
+DIGEST_INTERVALS = (DIGEST_NONE, DIGEST_WEEKLY, DIGEST_MONTHLY)
 
 
 class User(Base):
-    """Interner Dashboard-Benutzer (Admin/Mitarbeiter)."""
+    """Interner Dashboard-Benutzer (Admin/Mitarbeiter) oder Kunden-Login."""
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     username: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
-    # Rolle im Rollensystem: "admin" (volle Rechte inkl. Benutzerverwaltung)
-    # oder "user" (nur Ansehen + Kommentieren). Standard: "user".
+    # Rolle im Rollensystem: "admin", "user" oder "kunde". Standard: "user".
     role: Mapped[str] = mapped_column(
         String(20), nullable=False, default=ROLE_USER, server_default=ROLE_USER)
+    # Nur für Rolle "kunde" gesetzt: verknüpft das Login mit genau einem Kunden.
+    # Der Kunde sieht dann ausschließlich dessen Maschinen/Meldungen.
+    customer_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("customers.id", ondelete="SET NULL"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    customer: Mapped["Customer | None"] = relationship(back_populates="users")
 
     @property
     def is_admin(self) -> bool:
         return self.role == ROLE_ADMIN
+
+    @property
+    def is_kunde(self) -> bool:
+        return self.role == ROLE_KUNDE
+
+
+class Customer(Base):
+    """Ein Kunde (Firma) als E-Mail-Empfänger für Fehler-/Sammelmeldungen.
+
+    Ein Kunde ist zunächst nur ein Empfänger (reine E-Mail-Adresse). Optional kann
+    ihm ein Dashboard-Login (``User`` mit Rolle ``kunde``) zugeordnet werden, das
+    dann nur die diesem Kunden zugeordneten Maschinen sieht.
+    """
+    __tablename__ = "customers"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    # Firma/Kundenname (Pflicht).
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    # Haupt-E-Mail-Empfänger (Pflicht).
+    email: Mapped[str] = mapped_column(String(255), nullable=False)
+    # Optionaler Ansprechpartner.
+    contact: Mapped[str] = mapped_column(String(200), default="", server_default="")
+    # Freie Notiz.
+    note: Mapped[str] = mapped_column(Text, default="", server_default="")
+
+    # Sofort-Benachrichtigung bei neuem Fehler einer zugeordneten Maschine.
+    notify_on_error: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true")
+    # Sammelversand-Intervall: "none" | "weekly" | "monthly".
+    digest_interval: Mapped[str] = mapped_column(
+        String(20), nullable=False, default=DIGEST_NONE, server_default=DIGEST_NONE)
+    # Zeitpunkt des letzten erfolgreich versendeten Digests (für Fälligkeit).
+    last_digest_sent_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    machines: Mapped[list["Machine"]] = relationship(back_populates="customer")
+    users: Mapped[list["User"]] = relationship(back_populates="customer")
+
+
+class SmtpSettings(Base):
+    """SMTP-Konfiguration für den E-Mail-Versand (genau eine Zeile, id=1).
+
+    Das Passwort wird NIE im Klartext gespeichert, sondern mit Fernet verschlüsselt
+    (Schlüssel aus ``SECRET_KEY`` abgeleitet, siehe ``app/crypto.py``).
+    """
+    __tablename__ = "smtp_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    host: Mapped[str] = mapped_column(String(255), default="", server_default="")
+    port: Mapped[int] = mapped_column(Integer, default=587, server_default="587")
+    username: Mapped[str] = mapped_column(String(255), default="", server_default="")
+    # Verschlüsseltes Passwort (Fernet-Token). Leer = kein Passwort hinterlegt.
+    password_enc: Mapped[str] = mapped_column(Text, default="", server_default="")
+    from_email: Mapped[str] = mapped_column(String(255), default="", server_default="")
+    from_name: Mapped[str] = mapped_column(String(200), default="", server_default="")
+    # Transportverschlüsselung: "starttls" | "ssl" | "none".
+    security: Mapped[str] = mapped_column(
+        String(20), default="starttls", server_default="starttls")
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, onupdate=_utcnow)
 
 
 class Machine(Base):
@@ -58,6 +136,11 @@ class Machine(Base):
     first_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     notes: Mapped[str] = mapped_column(Text, default="")
+
+    # Zugeordneter Kunde (optional). NULL = keiner Firma zugeordnet ("intern").
+    customer_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("customers.id", ondelete="SET NULL"), nullable=True)
+    customer: Mapped["Customer | None"] = relationship(back_populates="machines")
 
     # Quittierung einer Kopier-Warnung (für die App-/REST-API). Ist ein Zeitpunkt
     # gesetzt, gilt die Kopier-Warnung dieser Maschine als quittiert.

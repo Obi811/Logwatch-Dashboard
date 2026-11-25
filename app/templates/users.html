@@ -4,7 +4,11 @@
 <h1>Benutzerverwaltung</h1>
 <p class="muted">Interne Dashboard-Konten. <strong>Administratoren</strong> dürfen
 Benutzer verwalten (anlegen, Rolle/Passwort ändern, löschen); <strong>Benutzer</strong>
-dürfen alle Seiten ansehen und Meldungen kommentieren, aber keine Benutzer verwalten.</p>
+dürfen alle Seiten ansehen und Meldungen kommentieren, aber keine Benutzer verwalten.
+Ein <strong>Kunde</strong>-Login ist an einen Kunden gebunden und sieht ausschließlich
+dessen Maschinen, Fehlerberichte und Statistik (keine Warnungen, Benutzer-, Kunden- oder
+SMTP-Verwaltung). Kunden-Logins werden nur über dieses Anlege-Formular (mit Kundenauswahl)
+erstellt.</p>
 
 <section class="panel">
   <h2>Neuen Benutzer anlegen</h2>
@@ -23,9 +27,18 @@ dürfen alle Seiten ansehen und Meldungen kommentieren, aber keine Benutzer verw
                autocomplete="new-password">
       </label>
       <label>Rolle
-        <select name="role">
+        <select name="role" id="role-select">
           <option value="{{ ROLE_USER }}" selected>Benutzer</option>
           <option value="{{ ROLE_ADMIN }}">Admin</option>
+          <option value="{{ ROLE_KUNDE }}">Kunde</option>
+        </select>
+      </label>
+      <label>Kunde (nur für Rolle „Kunde“)
+        <select name="customer_id" id="customer-select">
+          <option value="">— kein Kunde —</option>
+          {% for c in customers %}
+          <option value="{{ c.id }}">{{ c.name }}</option>
+          {% endfor %}
         </select>
       </label>
     </div>
@@ -39,13 +52,16 @@ dürfen alle Seiten ansehen und Meldungen kommentieren, aber keine Benutzer verw
   <h2>Vorhandene Benutzer ({{ users|length }})</h2>
   <table class="grid">
     <thead>
-      <tr><th>Benutzername</th><th>Rolle</th><th>Angelegt</th><th>Passwort ändern</th><th></th></tr>
+      <tr><th>Benutzername</th><th>Rolle</th><th>Kunde</th><th>Angelegt</th><th>Passwort ändern</th><th></th></tr>
     </thead>
     <tbody>
     {% for u in users %}
       <tr>
         <td>{{ u.username }}{% if u.username == user %} <span class="badge">du</span>{% endif %}</td>
         <td>
+          {% if u.role == ROLE_KUNDE %}
+            <span class="badge">Kunde</span>
+          {% else %}
           <form class="inline" method="post" action="/users/{{ u.id }}/role">
             <select name="role">
               <option value="{{ ROLE_USER }}"{% if u.role != ROLE_ADMIN %} selected{% endif %}>Benutzer</option>
@@ -53,7 +69,9 @@ dürfen alle Seiten ansehen und Meldungen kommentieren, aber keine Benutzer verw
             </select>
             <button type="submit" class="btn small">Setzen</button>
           </form>
+          {% endif %}
         </td>
+        <td>{{ u.customer.name if u.customer else "—" }}</td>
         <td>{{ u.created_at.strftime("%d.%m.%Y %H:%M") if u.created_at else "–" }}</td>
         <td>
           <form class="inline" method="post" action="/users/{{ u.id }}/password" autocomplete="off">

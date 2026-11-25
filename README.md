@@ -7,14 +7,26 @@ die Fehler-Historie, mögliche Raubkopien und Auswertungen.
 
 ## Zweck & Funktionsumfang
 
-- **Interner Login** (Session-Cookie): nur wenige Admin-/Mitarbeiter-Konten, die
-  **alle** Maschinen sehen. Kein Kunden-Self-Service, kein Mandanten-Modell.
-  Firma/Kunde wird je Maschine gespeichert (für Gruppierung/Filter).
-- **Rollensystem (Admin / Benutzer)**: jedes Konto hat eine Rolle (`admin` oder
-  `user`, Standard `user`). **Admins** dürfen alles inklusive der
-  Benutzerverwaltung; **Benutzer** sehen alle Seiten (Übersicht, Maschinen,
-  Warnungen, Meldungen, Statistik) und dürfen kommentieren, aber **nicht** die
-  Benutzerverwaltung öffnen. Details siehe Abschnitt „Rollen & Rechte".
+- **Interner Login** (Session-Cookie): Admin-/Mitarbeiter-Konten, die **alle**
+  Maschinen sehen. Firma/Kunde wird je Maschine gespeichert (für
+  Gruppierung/Filter). Zusätzlich gibt es ein optionales **Kunden-Login**
+  (Rolle `kunde`), das **nur** die Maschinen des eigenen Kunden sieht.
+- **Rollensystem (Admin / Benutzer / Kunde)**: jedes Konto hat eine Rolle
+  (`admin`, `user` oder `kunde`, Standard `user`). **Admins** dürfen alles
+  inklusive der Benutzer-, Kunden- und SMTP-Verwaltung; **Benutzer** sehen alle
+  Seiten (Übersicht, Maschinen, Warnungen, Meldungen, Statistik) und dürfen
+  kommentieren, aber **nicht** die Verwaltungsseiten öffnen; ein **Kunde** sieht
+  ausschließlich die Daten des ihm zugeordneten Kunden (eigene Maschinen,
+  Meldungen, Statistik) und darf nichts schreiben. Details siehe Abschnitt
+  „Rollen & Rechte".
+- **Kundenverwaltung** (`/customers`, nur Admins): Kunden anlegen/bearbeiten/
+  löschen, E-Mail-Einstellungen (Benachrichtigungs-Intervall, Sofort-Mail bei
+  Fehler), Maschinen einem Kunden zuordnen und Test-Mail versenden. Details
+  siehe Abschnitt „Kundenverwaltung".
+- **E-Mail-Versand (SMTP)**: Sofort-Benachrichtigung bei neuen Fehlern einer
+  Kundenmaschine sowie wöchentliche/monatliche Sammelberichte (HTML-Digest) je
+  Kunde. SMTP-Zugang wird im UI konfiguriert (Passwort verschlüsselt). Details
+  siehe Abschnitte „E-Mail-Versand (SMTP)" und „Automatischer Versand / Cronjob".
 - **Benutzerverwaltung** (`/users`, nur Admins): Admins können weitere
   Dashboard-Benutzer anlegen (inkl. Rollenwahl), deren Passwort ändern, die Rolle
   umstellen und Konten löschen. Benutzernamen sind eindeutig, Passwörter
@@ -54,9 +66,19 @@ die Fehler-Historie, mögliche Raubkopien und Auswertungen.
 
 ### Datenmodell (`app/models.py`)
 
-- `users` – interne Dashboard-Benutzer, mit `role` (`admin`/`user`).
+- `users` – interne Dashboard-Benutzer, mit `role` (`admin`/`user`/`kunde`) und
+  optionalem `customer_id` (nur bei Rolle `kunde` gesetzt – bindet das Login an
+  einen Kunden).
 - `machines` – eine Maschine je `machine_id` (PK), mit `company`, `first_seen`,
-  `last_seen`, `notes`.
+  `last_seen`, `notes` und optionalem `customer_id` (Zuordnung zu einem Kunden;
+  `NULL` = „intern", ohne Kunde).
+- `customers` – Kunden/Empfänger für Benachrichtigungen: `name` (Firma) und
+  `email` (beide Pflicht), `contact` (Ansprechpartner), `note`,
+  `notify_on_error` (Sofort-Mail an/aus), `digest_interval`
+  (`none`/`weekly`/`monthly`), `last_digest_sent_at`, `created_at`.
+- `smtp_settings` – eine Zeile mit dem SMTP-Zugang: `host`, `port`, `username`,
+  `password_enc` (**Fernet-verschlüsselt**), `from_email`, `from_name`,
+  `security` (`starttls`/`ssl`/`none`).
 - `hardware_fingerprints` – je `(machine_id, hardware_id)` eindeutig; Basis der
   Kopier-Erkennung; speichert zusätzlich `teamviewer_id`, `hostname`, Zeitstempel.
 - `error_reports` – einzelne Fehlerberichte mit `status` (`offen`/`abgeschlossen`),
@@ -74,8 +96,18 @@ Jeder Dashboard-Benutzer hat eine Rolle (Spalte `role`):
   und dem Nav-Punkt „Benutzer".
 - **Benutzer** – sieht alle Auswertungs-Seiten (Übersicht, Maschinen, Warnungen,
   Meldungen, Statistik) und darf Meldungen kommentieren, hat aber **keinen**
-  Zugriff auf die Benutzerverwaltung (Weiterleitung mit Flash-Fehler im Web,
-  HTTP 403 in der API) und sieht den Nav-Punkt „Benutzer" nicht.
+  Zugriff auf die Verwaltungsseiten (Benutzer/Kunden/SMTP; Weiterleitung mit
+  Flash-Fehler im Web, HTTP 403 in der API) und sieht deren Nav-Punkte nicht.
+- **Kunde** – an genau einen Kunden gebunden (`users.customer_id`) und sieht
+  **ausschließlich** die diesem Kunden zugeordneten Maschinen samt deren
+  Meldungen und Statistik (serverseitiges Scoping aller Lese-Routen). Keine
+  Warnungen-Seite, keine Benutzer-/Kunden-/SMTP-Verwaltung und **keine**
+  Schreibaktionen (Kommentieren, Abschließen/Wieder öffnen) – sonst
+  Weiterleitung zur Startseite mit Flash-Fehler. Ruft ein Kunde eine fremde
+  Maschine/Meldung direkt auf, erhält er HTTP 404. Kunden-Logins werden
+  pragmatisch über das bestehende Formular „Benutzer anlegen" (`/users`) mit der
+  Rolle „Kunde" und Kundenauswahl erstellt. Kunden **ohne** Login (reine
+  E-Mail-Empfänger) werden nur als Kunden-Datensatz unter `/customers` angelegt.
 
 Die Rollenprüfung ist in der wiederverwendbaren Abhängigkeit `require_admin`
 gebündelt (Web-Variante über den Session-User, API-Variante über den
@@ -88,27 +120,109 @@ bestehende Konten zu Admins befördert (Aussperr-Schutz).
 kommentiert werden. Ein Kommentar darf nur von seinem **Autor** oder einem
 **Admin** gelöscht werden; leere Kommentare werden abgelehnt.
 
+## Kundenverwaltung
+
+Unter `/customers` (nur Admins; Nav-Punkt „Kunden") werden **Kunden** verwaltet.
+Ein Kunde bündelt Maschinen und ist Empfänger der E-Mail-Benachrichtigungen:
+
+- **Anlegen/Bearbeiten/Löschen:** Pflichtfelder sind **Firma/Name** und
+  **E-Mail**; optional Ansprechpartner und Notiz. Je Kunde lässt sich einstellen,
+  ob bei neuen Fehlern eine **Sofort-Mail** verschickt wird (`notify_on_error`)
+  und in welchem **Intervall** ein Sammelbericht kommt (keiner / wöchentlich /
+  monatlich). Beim Löschen eines Kunden bleiben seine Maschinen erhalten und
+  fallen auf „intern" (ohne Kunde) zurück.
+- **Maschinen zuordnen:** Jede Maschine kann genau einem Kunden zugeordnet werden
+  (Dropdown). Maschinen ohne Zuordnung gelten als **intern** und lösen keine
+  Kundenmails aus.
+- **Test-Mail:** Button „Test-Mail senden" verschickt den aktuellen
+  Sammelbericht des Kunden sofort (nützlich zum Prüfen von Vorlage und
+  SMTP-Zugang).
+- **Kunden-Login (optional):** Soll ein Kunde sich selbst einloggen, legt ein
+  Admin unter `/users` einen Benutzer mit Rolle **„Kunde"** an und wählt den
+  Kunden aus. Dieser sieht dann nur die Daten seiner Maschinen (siehe „Rollen &
+  Rechte"). Kunden, die sich **nicht** einloggen, brauchen nur den
+  Kunden-Datensatz (reine E-Mail-Empfänger).
+
+## E-Mail-Versand (SMTP)
+
+Das Dashboard verschickt zwei Arten von E-Mails (HTML, deutsch):
+
+1. **Sofort-Fehler-Mail** – sobald der Windows-Client eine neue Meldung für eine
+   Maschine hochlädt, die einem Kunden mit aktivem `notify_on_error` zugeordnet
+   ist, geht eine sofortige Benachrichtigung an die Kunden-E-Mail. Der Versand
+   ist **best effort**: schlägt er fehl (oder ist kein SMTP konfiguriert),
+   beeinträchtigt das die Upload-Verarbeitung/API-Antwort nie.
+2. **Sammelbericht (Digest)** – pro Kunde eine HTML-Mail mit Kennzahlen
+   (überwachte Maschinen, Meldungen im Zeitraum, davon offen) und einer
+   Aufschlüsselung je Maschine (Zeit, Maschine, Fehleranzahl, Status). Enthält
+   **keine** Kommentare.
+
+**SMTP-Konfiguration** erfolgt unter `/settings/smtp` (nur Admins; Nav-Punkt
+„SMTP"): Host, Port, Benutzer, Passwort, Absenderadresse/-name und Sicherheit
+(**STARTTLS**, **SSL/TLS** oder **keine**). Das Passwort wird **Fernet-
+verschlüsselt** gespeichert (Schlüssel aus `SECRET_KEY` abgeleitet) und **nie**
+im Klartext ausgegeben – das Passwortfeld im Formular bleibt leer und
+überschreibt nur bei Eingabe. Ist in der DB kein Host hinterlegt, greift ein
+Fallback auf die `SMTP_*`-Umgebungsvariablen (siehe Env-Tabelle). Über „Test-Mail
+senden" lässt sich die Konfiguration prüfen.
+
+## Automatischer Versand / Cronjob
+
+Die Sammelberichte verschickt das Kommando `python -m app.send_digests`. Es
+ermittelt fällige Kunden anhand von `digest_interval` und `last_digest_sent_at`
+(**wöchentlich** ≥ 7 Tage, **monatlich** ≥ 28 Tage seit letztem Versand;
+Erstversand sofort) und ist **idempotent** – ein zweiter Lauf am selben Tag
+verschickt nicht erneut. Optionen: `--dry-run` (nichts senden, nur anzeigen) und
+`--customer-id <ID>` (nur ein Kunde).
+
+**Variante A – systemd-Timer (auf diesem Server, empfohlen):** Die Units liegen
+in `deploy/` und werden wie der Dienst per Symlink eingebunden:
+
+```bash
+sudo ln -sf $PWD/deploy/logwatch-digests.service /etc/systemd/system/logwatch-digests.service
+sudo ln -sf $PWD/deploy/logwatch-digests.timer   /etc/systemd/system/logwatch-digests.timer
+sudo systemctl daemon-reload && sudo systemctl enable --now logwatch-digests.timer
+systemctl list-timers | grep logwatch        # nächste Fälligkeit prüfen
+journalctl -u logwatch-digests.service -n 50  # letzten Lauf ansehen
+```
+
+Der Timer läuft täglich um 06:00 Uhr (`Persistent=true` holt verpasste Läufe nach
+einem Neustart nach). Das eigentliche Intervall (wöchentlich/monatlich) steuert
+das Skript selbst je Kunde – der Timer darf ruhig täglich laufen.
+
+**Variante B – Cron (z.B. auf einem klassischen Webspace):**
+
+```cron
+0 6 * * * cd /pfad/zum/logwatch-dashboard && /pfad/zum/logwatch-dashboard/venv/bin/python -m app.send_digests >> logs/digests.log 2>&1
+```
+
 ## Projektstruktur
 
 ```
 logwatch-dashboard/
 ├─ app/
-│  ├─ main.py            # FastAPI-App, Web-Routen, Upload-API, Kommentare
+│  ├─ main.py            # FastAPI-App, Web-Routen, Upload-API, Kommentare, Kunden/SMTP
 │  ├─ api.py             # REST-API (/api/v1): App-Backend + Kommentar-Endpunkte
 │  ├─ api_auth.py        # Token-Auth + require_admin (API)
-│  ├─ settings.py        # Einstellungen aus .env
+│  ├─ settings.py        # Einstellungen aus .env (inkl. SMTP_*-Fallback)
 │  ├─ db.py              # Engine + Connection-Pool + Session
-│  ├─ models.py          # SQLAlchemy-Datenmodell (users.role, comments)
+│  ├─ models.py          # SQLAlchemy-Datenmodell (users.role, comments, customers, smtp_settings)
 │  ├─ auth.py            # bcrypt + Session-Helfer
+│  ├─ crypto.py          # Fernet-Ver-/Entschlüsselung (SMTP-Passwort)
+│  ├─ mailer.py          # SMTP-Versand + HTML-Vorlagen (Digest/Fehler)
+│  ├─ send_digests.py    # Kommando für fällige Sammelberichte (Cron/Timer)
 │  ├─ version_check.py   # Update-Hinweis (GitHub-Release-Prüfung, gecacht)
 │  ├─ templates/         # Jinja2-Templates (deutsch)
 │  └─ static/style.css
 ├─ deploy/
-│  ├─ logwatch-dashboard.service   # systemd-Unit
-│  └─ logwatch-dash.conf           # nginx-vhost
-├─ init_db.py            # idempotentes Schema-Init + Seed-Admin + Rollen-Migration
+│  ├─ logwatch-dashboard.service   # systemd-Unit (Web-Dienst)
+│  ├─ logwatch-dash.conf           # nginx-vhost
+│  ├─ logwatch-digests.service     # systemd-oneshot (Sammelbericht-Versand)
+│  └─ logwatch-digests.timer       # systemd-Timer (täglich)
+├─ init_db.py            # idempotentes Schema-Init + Seed-Admin + Migrationen
 ├─ tests/test_dashboard.py         # Web-UI-Tests (inkl. Kommentare + Rollen)
 ├─ tests/test_api.py               # REST-API-Tests (inkl. Kommentare + role)
+├─ tests/test_customers.py         # Kunden/SMTP/Mail/Scoping-Tests (SMTP gemockt)
 ├─ requirements.txt
 ├─ .env.example
 └─ .gitignore
@@ -130,6 +244,13 @@ Siehe `.env.example`. Die echte `.env` wird **nicht** eingecheckt.
 | `GITHUB_PAT` | (optional) GitHub-Token für den Update-Hinweis. Nur nötig, wenn das Dashboard-Repo **privat** ist. Wird nie geloggt. |
 | `UPDATE_CHECK_ENABLED` | (optional) Update-Hinweis an/aus (Standard `1`). Auf `0` setzen, um die GitHub-Abfrage abzuschalten. |
 | `API_CORS_ORIGINS` | (optional) Erlaubte Ursprünge (Origins) für die App-/REST-API, komma-separiert. Standard `*` (jeder Ursprung). Für den Produktivbetrieb eng setzen, z.B. `https://app.example.com,https://admin.example.com`. |
+| `SMTP_HOST` | (optional) SMTP-Server als **Fallback**, falls unter `/settings/smtp` nichts hinterlegt ist. Die UI-Konfiguration (DB) hat Vorrang. |
+| `SMTP_PORT` | (optional) SMTP-Port (Standard `587`). |
+| `SMTP_USER` | (optional) SMTP-Benutzername. |
+| `SMTP_PASSWORD` | (optional) SMTP-Passwort (nur Fallback; in der DB wird es verschlüsselt gespeichert). |
+| `SMTP_FROM_EMAIL` | (optional) Absenderadresse der E-Mails. |
+| `SMTP_FROM_NAME` | (optional) Absendername (Standard `LogWatch Dashboard`). |
+| `SMTP_SECURITY` | (optional) Transportsicherheit: `starttls` (Standard), `ssl` oder `none`. |
 
 ## Lokale Entwicklung
 

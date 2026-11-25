@@ -1,0 +1,12 @@
+[Unit]
+Description=LogWatch Dashboard – taeglicher Trigger fuer Kunden-Sammelberichte
+
+[Timer]
+# Taeglich um 06:00 Uhr; die Faelligkeit (woechentlich/monatlich) entscheidet das
+# Skript selbst anhand von last_digest_sent_at (idempotent, kein Doppelversand).
+OnCalendar=*-*-* 06:00:00
+# Verpasste Laeufe (VM war aus) werden beim naechsten Start nachgeholt.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -10,6 +10,8 @@ Zum Abhaken einfach `[ ]` in `[x]` ändern. Neue Punkte unten anhängen.
 - [ ] Laufzeiten/Uptime-Auswertung je Maschine (Heartbeat auswerten)
 - [ ] Aufbewahrungs-/Löschkonzept für alte Logdateien (Speicherplatz)
 - [ ] Self-Update/Deploy-Knopf (nur sinnvoll bei eigenem Server mit SSH/systemd)
+- [ ] E-Mail-Versand im Windows-Client entfernen (Zentralisierung im Dashboard), sobald der Dashboard-SMTP-Versand live verifiziert ist
+- [ ] Mehrere E-Mail-Empfänger pro Kunde (aktuell genau eine Adresse je Kunde)
 - [ ] 
 - [ ] 
 
@@ -52,3 +54,8 @@ Zum Abhaken einfach `[ ]` in `[x]` ändern. Neue Punkte unten anhängen.
 - [x] App-Unterstützung / REST-API (`/api/v1`): token-authentifizierte JSON-API (Login, me, overview, machines, warnings+acknowledge, reports), CORS, Swagger-Doku unter `/docs`
 - [x] Kommentarfunktion für Meldungen (Web-UI + REST-API): anlegen/löschen, nur Autor oder Admin darf löschen, leere Kommentare abgelehnt
 - [x] Rollensystem (Admin/Benutzer): `role`-Spalte, `require_admin`-Absicherung der Benutzerverwaltung (Web + API), Rollenwahl/-umstellung im UI, Schutz des letzten Admins, `role` in `/api/v1/me`
+- [x] Kundenverwaltung (`/customers`, nur Admin): Kunden anlegen/bearbeiten/löschen, Maschinen-Zuordnung, E-Mail-Einstellungen (Intervall, Sofort-Mail), Test-Mail – Tabellen `customers` + `machines.customer_id`
+- [x] Rolle `kunde` + Kunden-Login (`users.customer_id`): serverseitiges Scoping aller Lese-Routen, keine Schreibaktionen/Verwaltung, 404 bei fremden Maschinen/Meldungen
+- [x] SMTP-Konfiguration im UI (`/settings/smtp`, nur Admin): Passwort Fernet-verschlüsselt (`password_enc`), nie im Klartext ausgegeben, Fallback auf `SMTP_*`-Env, Test-Mail
+- [x] E-Mail-Versand (HTML, deutsch): Sofort-Fehler-Mail beim Upload + Sammelbericht (Digest) je Kunde mit Kennzahlen und Aufschlüsselung je Maschine (ohne Kommentare)
+- [x] Automatischer Digest-Versand: Kommando `python -m app.send_digests` (idempotent, `--dry-run`/`--customer-id`) + systemd-Timer/-Service in `deploy/` sowie dokumentierte Cron-Zeile

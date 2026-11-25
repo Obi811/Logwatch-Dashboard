@@ -7,6 +7,7 @@ Kopier-Erkennung und Auswertungen.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import uuid
@@ -27,16 +28,20 @@ from .auth import (
     current_user, hash_password, login_user, logout_user, verify_password,
 )
 from .api import router as api_router
+from .crypto import encrypt
 from .db import SessionLocal, get_db
+from . import mailer
 from .models import (
-    ROLE_ADMIN, ROLE_USER, ROLES, STATUS_CLOSED, STATUS_OPEN,
-    Comment, ErrorReport, HardwareFingerprint, Machine, User,
+    DIGEST_INTERVALS, DIGEST_NONE, ROLE_ADMIN, ROLE_KUNDE, ROLE_USER, ROLES,
+    STATUS_CLOSED, STATUS_OPEN,
+    Comment, Customer, ErrorReport, HardwareFingerprint, Machine, SmtpSettings, User,
 )
 from .settings import get_settings
 from .version_check import cached_update_check
 
 _settings = get_settings()
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+logger = logging.getLogger("logwatch.main")
 
 # /docs + /openapi.json sind aktiv, damit App-Entwickler eine klare API-Referenz
 # haben (Swagger-UI). Das Web-UI bleibt unverändert session-basiert.
@@ -102,6 +107,56 @@ def require_admin(request: Request, db: Session = Depends(get_db)) -> User:
     return u
 
 
+def require_user_obj(request: Request, db: Session = Depends(get_db)) -> User:
+    """Dependency: liefert das ``User``-Objekt der angemeldeten Sitzung.
+
+    Wird für die Rollen-/Kunden-Sichtbarkeit (Scoping) benötigt. Nicht angemeldet
+    oder Benutzer gelöscht → ``NotAuthenticated`` (Redirect zum Login)."""
+    username = current_user(request)
+    if not username:
+        raise NotAuthenticated()
+    u = db.scalar(select(User).where(User.username == username))
+    if u is None:
+        raise NotAuthenticated()
+    return u
+
+
+def _kunde_machine_ids(db: Session, user_obj: User) -> list[str]:
+    """Maschinen-IDs, die ein Kunden-Login sehen darf (seines Kunden)."""
+    if user_obj.customer_id is None:
+        return []
+    rows = db.execute(
+        select(Machine.machine_id).where(Machine.customer_id == user_obj.customer_id)
+    ).scalars().all()
+    return list(rows)
+
+
+def _scoped_machine_ids(db: Session, user_obj: User) -> list[str] | None:
+    """Erlaubte Maschinen-IDs für den Benutzer.
+
+    ``None`` bedeutet „keine Einschränkung" (Admin/Benutzer sehen alles). Für die
+    Rolle ``kunde`` wird die Liste der eigenen Maschinen zurückgegeben (ggf. leer).
+    """
+    if user_obj.role == ROLE_KUNDE:
+        return _kunde_machine_ids(db, user_obj)
+    return None
+
+
+def _assert_report_visible(db: Session, user_obj: User, report: ErrorReport) -> None:
+    """Wirft ``Forbidden``, wenn ein Kunde einen fremden Bericht öffnen will."""
+    allowed = _scoped_machine_ids(db, user_obj)
+    if allowed is not None and report.machine_id not in allowed:
+        raise Forbidden()
+
+
+def require_not_kunde(request: Request, db: Session = Depends(get_db)) -> User:
+    """Dependency für Seiten, die Kunden nicht sehen dürfen (z.B. Warnungen)."""
+    u = require_user_obj(request, db)
+    if u.role == ROLE_KUNDE:
+        raise Forbidden()
+    return u
+
+
 @app.exception_handler(NotAuthenticated)
 async def _not_auth_handler(request: Request, exc: NotAuthenticated):
     return RedirectResponse("/login", status_code=303)
@@ -133,23 +188,30 @@ def _pop_flashes(request: Request) -> list[dict]:
     return msgs if isinstance(msgs, list) else []
 
 
-def _is_admin_username(username: str | None) -> bool:
-    """Prüft (per kurzlebiger Session), ob ``username`` die Admin-Rolle hat."""
+def _role_of_username(username: str | None) -> str | None:
+    """Liefert die Rolle eines Benutzers (per kurzlebiger Session) oder ``None``."""
     if not username:
-        return False
+        return None
     db = SessionLocal()
     try:
         u = db.scalar(select(User).where(User.username == username))
-        return bool(u and u.role == ROLE_ADMIN)
+        return u.role if u else None
     finally:
         db.close()
 
 
+def _is_admin_username(username: str | None) -> bool:
+    """Prüft (per kurzlebiger Session), ob ``username`` die Admin-Rolle hat."""
+    return _role_of_username(username) == ROLE_ADMIN
+
+
 def _ctx(request: Request, user: str, **extra) -> dict:
+    role = _role_of_username(user)
     ctx = {
         "request": request,
         "user": user,
-        "is_admin": _is_admin_username(user),
+        "is_admin": role == ROLE_ADMIN,
+        "is_kunde": role == ROLE_KUNDE,
         "flashes": _pop_flashes(request),
         "update": cached_update_check(
             enabled=_settings.update_check_enabled,
@@ -241,9 +303,11 @@ def _admin_count(db: Session) -> int:
 def users_list(request: Request, admin: User = Depends(require_admin),
                db: Session = Depends(get_db)):
     users = db.execute(select(User).order_by(User.username)).scalars().all()
+    customers = db.execute(select(Customer).order_by(Customer.name)).scalars().all()
     return templates.TemplateResponse(request, "users.html", _ctx(
-        request, admin.username, users=users, min_pw_len=_MIN_PASSWORD_LEN,
-        ROLE_ADMIN=ROLE_ADMIN, ROLE_USER=ROLE_USER))
+        request, admin.username, users=users, customers=customers,
+        min_pw_len=_MIN_PASSWORD_LEN,
+        ROLE_ADMIN=ROLE_ADMIN, ROLE_USER=ROLE_USER, ROLE_KUNDE=ROLE_KUNDE))
 
 
 @app.post("/users/create")
@@ -252,6 +316,7 @@ def users_create(request: Request,
                  password: str = Form(...),
                  password2: str = Form(...),
                  role: str = Form(ROLE_USER),
+                 customer_id: str = Form(""),
                  admin: User = Depends(require_admin),
                  db: Session = Depends(get_db)):
     username = (username or "").strip()
@@ -262,6 +327,16 @@ def users_create(request: Request,
     if role not in ROLES:
         flash(request, "Ungültige Rolle.", "error")
         return RedirectResponse("/users", status_code=303)
+    # Für ein Kunden-Login muss ein gültiger Kunde ausgewählt sein.
+    cust_fk = None
+    if role == ROLE_KUNDE:
+        cid = (customer_id or "").strip()
+        customer = db.get(Customer, int(cid)) if cid.isdigit() else None
+        if customer is None:
+            flash(request, "Für ein Kunden-Login muss ein gültiger Kunde "
+                           "ausgewählt werden.", "error")
+            return RedirectResponse("/users", status_code=303)
+        cust_fk = customer.id
     if len(password) < _MIN_PASSWORD_LEN:
         flash(request, f"Das Passwort muss mindestens {_MIN_PASSWORD_LEN} "
                        "Zeichen lang sein.", "error")
@@ -274,9 +349,10 @@ def users_create(request: Request,
         flash(request, f"Der Benutzer „{username}“ existiert bereits.", "error")
         return RedirectResponse("/users", status_code=303)
 
-    db.add(User(username=username, password_hash=hash_password(password), role=role))
+    db.add(User(username=username, password_hash=hash_password(password),
+                role=role, customer_id=cust_fk))
     db.commit()
-    rolle = "Administrator" if role == ROLE_ADMIN else "Benutzer"
+    rolle = {ROLE_ADMIN: "Administrator", ROLE_KUNDE: "Kunde"}.get(role, "Benutzer")
     flash(request, f"Benutzer „{username}“ ({rolle}) wurde angelegt.", "success")
     return RedirectResponse("/users", status_code=303)
 
@@ -313,6 +389,12 @@ def users_change_role(user_id: int, request: Request,
         raise HTTPException(status_code=404, detail="Benutzer nicht gefunden")
     if role not in ROLES:
         flash(request, "Ungültige Rolle.", "error")
+        return RedirectResponse("/users", status_code=303)
+    # Kunden-Logins werden über das Anlegen-Formular (mit Kundenzuordnung) erstellt,
+    # nicht per Inline-Rollenwechsel.
+    if role == ROLE_KUNDE:
+        flash(request, "Kunden-Logins bitte über „Benutzer anlegen“ mit "
+                       "Kundenauswahl erstellen.", "error")
         return RedirectResponse("/users", status_code=303)
     # Letzter-Admin-Schutz: der einzige verbleibende Admin darf nicht herabgestuft
     # werden, sonst käme niemand mehr an die Benutzerverwaltung.
@@ -361,17 +443,29 @@ def users_delete(user_id: int, request: Request,
 # Übersicht (Dashboard-Startseite)
 # ----------------------------------------------------------------------------
 @app.get("/", response_class=HTMLResponse)
-def overview(request: Request, user: str = Depends(require_user), db: Session = Depends(get_db)):
-    machine_count = db.scalar(select(func.count(Machine.machine_id))) or 0
-    open_count = db.scalar(
-        select(func.count(ErrorReport.id)).where(ErrorReport.status == STATUS_OPEN)) or 0
-    closed_count = db.scalar(
-        select(func.count(ErrorReport.id)).where(ErrorReport.status == STATUS_CLOSED)) or 0
-    warn_machines = _machines_with_copy_warning(db)
+def overview(request: Request, user_obj: User = Depends(require_user_obj),
+             db: Session = Depends(get_db)):
+    user = user_obj.username
+    scope = _scoped_machine_ids(db, user_obj)
 
-    recent = db.execute(
-        select(ErrorReport).order_by(ErrorReport.received_at.desc()).limit(10)
-    ).scalars().all()
+    mstmt = select(func.count(Machine.machine_id))
+    open_stmt = select(func.count(ErrorReport.id)).where(ErrorReport.status == STATUS_OPEN)
+    closed_stmt = select(func.count(ErrorReport.id)).where(ErrorReport.status == STATUS_CLOSED)
+    recent_stmt = select(ErrorReport).order_by(ErrorReport.received_at.desc()).limit(10)
+    if scope is not None:
+        mstmt = mstmt.where(Machine.machine_id.in_(scope))
+        open_stmt = open_stmt.where(ErrorReport.machine_id.in_(scope))
+        closed_stmt = closed_stmt.where(ErrorReport.machine_id.in_(scope))
+        recent_stmt = select(ErrorReport).where(ErrorReport.machine_id.in_(scope))\
+            .order_by(ErrorReport.received_at.desc()).limit(10)
+
+    machine_count = db.scalar(mstmt) or 0
+    open_count = db.scalar(open_stmt) or 0
+    closed_count = db.scalar(closed_stmt) or 0
+    # Kopier-Warnungen zeigen wir Kunden nicht an.
+    warn_machines = [] if scope is not None else _machines_with_copy_warning(db)
+
+    recent = db.execute(recent_stmt).scalars().all()
 
     return templates.TemplateResponse(request, "overview.html", _ctx(
         request, user,
@@ -387,15 +481,19 @@ def overview(request: Request, user: str = Depends(require_user), db: Session = 
 # Maschinen
 # ----------------------------------------------------------------------------
 @app.get("/machines", response_class=HTMLResponse)
-def machines_list(request: Request, user: str = Depends(require_user),
+def machines_list(request: Request, user_obj: User = Depends(require_user_obj),
                   q: str = "", db: Session = Depends(get_db)):
+    user = user_obj.username
+    scope = _scoped_machine_ids(db, user_obj)
     stmt = select(Machine).order_by(Machine.last_seen.desc())
+    if scope is not None:
+        stmt = stmt.where(Machine.machine_id.in_(scope))
     if q.strip():
         like = f"%{q.strip()}%"
         stmt = stmt.where((Machine.machine_id.ilike(like)) | (Machine.company.ilike(like)))
     machines = db.execute(stmt).scalars().all()
 
-    warn_set = set(_machines_with_copy_warning(db))
+    warn_set = set() if scope is not None else set(_machines_with_copy_warning(db))
     rows = []
     for m in machines:
         open_n = db.scalar(
@@ -413,7 +511,11 @@ def machines_list(request: Request, user: str = Depends(require_user),
 
 @app.get("/machines/{machine_id}", response_class=HTMLResponse)
 def machine_detail(machine_id: str, request: Request,
-                   user: str = Depends(require_user), db: Session = Depends(get_db)):
+                   user_obj: User = Depends(require_user_obj), db: Session = Depends(get_db)):
+    user = user_obj.username
+    scope = _scoped_machine_ids(db, user_obj)
+    if scope is not None and machine_id not in scope:
+        raise Forbidden()
     machine = db.get(Machine, machine_id)
     if not machine:
         raise HTTPException(status_code=404, detail="Maschine nicht gefunden")
@@ -440,10 +542,14 @@ def machine_detail(machine_id: str, request: Request,
 # Fehlerberichte (Historie)
 # ----------------------------------------------------------------------------
 @app.get("/reports", response_class=HTMLResponse)
-def reports_list(request: Request, user: str = Depends(require_user),
+def reports_list(request: Request, user_obj: User = Depends(require_user_obj),
                  status: str = "", machine_id: str = "", company: str = "",
                  db: Session = Depends(get_db)):
+    user = user_obj.username
+    scope = _scoped_machine_ids(db, user_obj)
     stmt = select(ErrorReport)
+    if scope is not None:
+        stmt = stmt.where(ErrorReport.machine_id.in_(scope))
     if status in (STATUS_OPEN, STATUS_CLOSED):
         stmt = stmt.where(ErrorReport.status == status)
     if machine_id.strip():
@@ -471,10 +577,12 @@ def reports_list(request: Request, user: str = Depends(require_user),
 
 @app.get("/reports/{report_id}", response_class=HTMLResponse)
 def report_detail(report_id: int, request: Request,
-                  user: str = Depends(require_user), db: Session = Depends(get_db)):
+                  user_obj: User = Depends(require_user_obj), db: Session = Depends(get_db)):
+    user = user_obj.username
     report = db.get(ErrorReport, report_id)
     if not report:
         raise HTTPException(status_code=404, detail="Fehlerbericht nicht gefunden")
+    _assert_report_visible(db, user_obj, report)
     machine = db.get(Machine, report.machine_id)
     lines = report.error_lines.split("\n") if report.error_lines else []
     comments = db.execute(
@@ -498,14 +606,12 @@ def report_detail(report_id: int, request: Request,
 
 @app.post("/reports/{report_id}/comments")
 def comment_add(report_id: int, request: Request,
-                body: str = Form(...), user: str = Depends(require_user),
+                body: str = Form(...), user_obj: User = Depends(require_not_kunde),
                 db: Session = Depends(get_db)):
     report = db.get(ErrorReport, report_id)
     if not report:
         raise HTTPException(status_code=404, detail="Fehlerbericht nicht gefunden")
-    me = db.scalar(select(User).where(User.username == user))
-    if me is None:
-        raise NotAuthenticated()
+    me = user_obj
     text_body = (body or "").strip()
     if not text_body:
         flash(request, "Der Kommentar darf nicht leer sein.", "error")
@@ -518,15 +624,13 @@ def comment_add(report_id: int, request: Request,
 
 @app.post("/comments/{comment_id}/delete")
 def comment_delete(comment_id: int, request: Request,
-                   user: str = Depends(require_user),
+                   user_obj: User = Depends(require_not_kunde),
                    db: Session = Depends(get_db)):
     comment = db.get(Comment, comment_id)
     if comment is None:
         raise HTTPException(status_code=404, detail="Kommentar nicht gefunden")
     report_id = comment.report_id
-    me = db.scalar(select(User).where(User.username == user))
-    if me is None:
-        raise NotAuthenticated()
+    me = user_obj
     # Löschen darf nur der Autor selbst oder ein Administrator.
     if comment.user_id != me.id and me.role != ROLE_ADMIN:
         flash(request, "Du darfst nur eigene Kommentare löschen.", "error")
@@ -539,8 +643,9 @@ def comment_delete(comment_id: int, request: Request,
 
 @app.post("/reports/{report_id}/close")
 def report_close(report_id: int, request: Request,
-                 note: str = Form(""), user: str = Depends(require_user),
+                 note: str = Form(""), user_obj: User = Depends(require_not_kunde),
                  db: Session = Depends(get_db)):
+    user = user_obj.username
     report = db.get(ErrorReport, report_id)
     if not report:
         raise HTTPException(status_code=404, detail="Fehlerbericht nicht gefunden")
@@ -555,7 +660,7 @@ def report_close(report_id: int, request: Request,
 
 @app.post("/reports/{report_id}/reopen")
 def report_reopen(report_id: int, request: Request,
-                  user: str = Depends(require_user), db: Session = Depends(get_db)):
+                  user_obj: User = Depends(require_not_kunde), db: Session = Depends(get_db)):
     report = db.get(ErrorReport, report_id)
     if not report:
         raise HTTPException(status_code=404, detail="Fehlerbericht nicht gefunden")
@@ -568,10 +673,11 @@ def report_reopen(report_id: int, request: Request,
 
 @app.get("/reports/{report_id}/logfile")
 def report_logfile(report_id: int, request: Request,
-                   user: str = Depends(require_user), db: Session = Depends(get_db)):
+                   user_obj: User = Depends(require_user_obj), db: Session = Depends(get_db)):
     report = db.get(ErrorReport, report_id)
     if not report:
         raise HTTPException(status_code=404, detail="Fehlerbericht nicht gefunden")
+    _assert_report_visible(db, user_obj, report)
     if not report.log_path or not os.path.isfile(report.log_path):
         raise HTTPException(status_code=404, detail="Keine Logdatei vorhanden")
     filename = report.log_filename or os.path.basename(report.log_path)
@@ -582,8 +688,9 @@ def report_logfile(report_id: int, request: Request,
 # Kopier-Warnungen
 # ----------------------------------------------------------------------------
 @app.get("/warnings", response_class=HTMLResponse)
-def warnings_page(request: Request, user: str = Depends(require_user),
+def warnings_page(request: Request, user_obj: User = Depends(require_not_kunde),
                   db: Session = Depends(get_db)):
+    user = user_obj.username
     warn_ids = _machines_with_copy_warning(db)
     items = []
     for mid in warn_ids:
@@ -603,23 +710,36 @@ def warnings_page(request: Request, user: str = Depends(require_user),
 # Statistiken / Auswertungen
 # ----------------------------------------------------------------------------
 @app.get("/statistik", response_class=HTMLResponse)
-def statistik_page(request: Request, user: str = Depends(require_user),
+def statistik_page(request: Request, user_obj: User = Depends(require_user_obj),
                    db: Session = Depends(get_db)):
-    machine_count = db.scalar(select(func.count(Machine.machine_id))) or 0
-    open_count = db.scalar(
-        select(func.count(ErrorReport.id)).where(ErrorReport.status == STATUS_OPEN)) or 0
-    closed_count = db.scalar(
-        select(func.count(ErrorReport.id)).where(ErrorReport.status == STATUS_CLOSED)) or 0
-    total_count = db.scalar(select(func.count(ErrorReport.id))) or 0
-    warn_count = len(_machines_with_copy_warning(db))
+    user = user_obj.username
+    scope = _scoped_machine_ids(db, user_obj)
 
-    # Top-Maschinen nach Fehleranzahl
-    top_rows = db.execute(
+    mstmt = select(func.count(Machine.machine_id))
+    open_stmt = select(func.count(ErrorReport.id)).where(ErrorReport.status == STATUS_OPEN)
+    closed_stmt = select(func.count(ErrorReport.id)).where(ErrorReport.status == STATUS_CLOSED)
+    total_stmt = select(func.count(ErrorReport.id))
+    top_stmt = (
         select(ErrorReport.machine_id, func.count(ErrorReport.id).label("n"))
         .group_by(ErrorReport.machine_id)
         .order_by(func.count(ErrorReport.id).desc())
         .limit(10)
-    ).all()
+    )
+    if scope is not None:
+        mstmt = mstmt.where(Machine.machine_id.in_(scope))
+        open_stmt = open_stmt.where(ErrorReport.machine_id.in_(scope))
+        closed_stmt = closed_stmt.where(ErrorReport.machine_id.in_(scope))
+        total_stmt = total_stmt.where(ErrorReport.machine_id.in_(scope))
+        top_stmt = top_stmt.where(ErrorReport.machine_id.in_(scope))
+
+    machine_count = db.scalar(mstmt) or 0
+    open_count = db.scalar(open_stmt) or 0
+    closed_count = db.scalar(closed_stmt) or 0
+    total_count = db.scalar(total_stmt) or 0
+    warn_count = 0 if scope is not None else len(_machines_with_copy_warning(db))
+
+    # Top-Maschinen nach Fehleranzahl
+    top_rows = db.execute(top_stmt).all()
     companies = {m.machine_id: m.company for m in db.execute(select(Machine)).scalars().all()}
     top_machines = [{"machine_id": r[0], "company": companies.get(r[0], ""), "n": r[1]}
                     for r in top_rows]
@@ -636,17 +756,21 @@ def statistik_page(request: Request, user: str = Depends(require_user),
 
 
 @app.get("/api/stats/errors-per-day")
-def stats_errors_per_day(request: Request, user: str = Depends(require_user),
+def stats_errors_per_day(request: Request, user_obj: User = Depends(require_user_obj),
                          days: int = 30, db: Session = Depends(get_db)):
     days = max(1, min(days, 365))
     since = _utcnow() - timedelta(days=days - 1)
-    rows = db.execute(
+    scope = _scoped_machine_ids(db, user_obj)
+    stmt = (
         select(func.date(ErrorReport.received_at).label("d"),
                func.count(ErrorReport.id).label("n"))
         .where(ErrorReport.received_at >= since)
         .group_by(func.date(ErrorReport.received_at))
         .order_by(func.date(ErrorReport.received_at))
-    ).all()
+    )
+    if scope is not None:
+        stmt = stmt.where(ErrorReport.machine_id.in_(scope))
+    rows = db.execute(stmt).all()
     counts = {str(r[0]): r[1] for r in rows}
 
     labels: list[str] = []
@@ -657,6 +781,228 @@ def stats_errors_per_day(request: Request, user: str = Depends(require_user),
         labels.append(d)
         values.append(int(counts.get(d, 0)))
     return JSONResponse({"labels": labels, "values": values})
+
+
+# ----------------------------------------------------------------------------
+# Kundenverwaltung (nur Admin)
+# ----------------------------------------------------------------------------
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+@app.get("/customers", response_class=HTMLResponse)
+def customers_list(request: Request, admin: User = Depends(require_admin),
+                   db: Session = Depends(get_db)):
+    customers = db.execute(select(Customer).order_by(Customer.name)).scalars().all()
+    rows = []
+    for c in customers:
+        machine_count = db.scalar(
+            select(func.count(Machine.machine_id))
+            .where(Machine.customer_id == c.id)) or 0
+        login_count = db.scalar(
+            select(func.count(User.id)).where(User.customer_id == c.id)) or 0
+        rows.append({"c": c, "machines": machine_count, "logins": login_count})
+    # Alle Maschinen für die Zuordnungs-Dropdowns (inkl. aktuell zugeordneter Kunde).
+    machines = db.execute(select(Machine).order_by(Machine.machine_id)).scalars().all()
+    return templates.TemplateResponse(request, "customers.html", _ctx(
+        request, admin.username, rows=rows, machines=machines,
+        customers=customers, DIGEST_INTERVALS=DIGEST_INTERVALS))
+
+
+def _validate_customer_form(request: Request, name: str, email: str,
+                            digest_interval: str) -> str | None:
+    """Prüft die gemeinsamen Pflichtfelder und liefert bei Fehlern eine Meldung."""
+    if not name.strip():
+        return "Bitte einen Namen / eine Firma angeben."
+    if not _EMAIL_RE.match(email.strip()):
+        return "Bitte eine gültige E-Mail-Adresse angeben."
+    if digest_interval not in DIGEST_INTERVALS:
+        return "Ungültiges Versand-Intervall."
+    return None
+
+
+@app.post("/customers/create")
+def customers_create(request: Request,
+                     name: str = Form(...),
+                     email: str = Form(...),
+                     contact: str = Form(""),
+                     note: str = Form(""),
+                     notify_on_error: str = Form(""),
+                     digest_interval: str = Form(DIGEST_NONE),
+                     admin: User = Depends(require_admin),
+                     db: Session = Depends(get_db)):
+    err = _validate_customer_form(request, name, email, digest_interval)
+    if err:
+        flash(request, err, "error")
+        return RedirectResponse("/customers", status_code=303)
+    db.add(Customer(
+        name=name.strip(), email=email.strip(),
+        contact=contact.strip(), note=note.strip(),
+        notify_on_error=bool(notify_on_error), digest_interval=digest_interval,
+    ))
+    db.commit()
+    flash(request, f"Kunde „{name.strip()}“ wurde angelegt.", "success")
+    return RedirectResponse("/customers", status_code=303)
+
+
+@app.post("/customers/{customer_id}/edit")
+def customers_edit(customer_id: int, request: Request,
+                   name: str = Form(...),
+                   email: str = Form(...),
+                   contact: str = Form(""),
+                   note: str = Form(""),
+                   notify_on_error: str = Form(""),
+                   digest_interval: str = Form(DIGEST_NONE),
+                   admin: User = Depends(require_admin),
+                   db: Session = Depends(get_db)):
+    customer = db.get(Customer, customer_id)
+    if customer is None:
+        raise HTTPException(status_code=404, detail="Kunde nicht gefunden")
+    err = _validate_customer_form(request, name, email, digest_interval)
+    if err:
+        flash(request, err, "error")
+        return RedirectResponse("/customers", status_code=303)
+    customer.name = name.strip()
+    customer.email = email.strip()
+    customer.contact = contact.strip()
+    customer.note = note.strip()
+    customer.notify_on_error = bool(notify_on_error)
+    customer.digest_interval = digest_interval
+    db.commit()
+    flash(request, f"Kunde „{customer.name}“ wurde aktualisiert.", "success")
+    return RedirectResponse("/customers", status_code=303)
+
+
+@app.post("/customers/{customer_id}/delete")
+def customers_delete(customer_id: int, request: Request,
+                     admin: User = Depends(require_admin),
+                     db: Session = Depends(get_db)):
+    customer = db.get(Customer, customer_id)
+    if customer is None:
+        raise HTTPException(status_code=404, detail="Kunde nicht gefunden")
+    name = customer.name
+    # Maschinen und Kunden-Logins werden per FK ON DELETE SET NULL entkoppelt;
+    # zur Sicherheit setzen wir die Zuordnung hier explizit zurück.
+    for m in db.execute(select(Machine).where(Machine.customer_id == customer_id)).scalars().all():
+        m.customer_id = None
+    for u in db.execute(select(User).where(User.customer_id == customer_id)).scalars().all():
+        u.customer_id = None
+    db.delete(customer)
+    db.commit()
+    flash(request, f"Kunde „{name}“ wurde gelöscht.", "success")
+    return RedirectResponse("/customers", status_code=303)
+
+
+@app.post("/customers/assign-machine")
+def customers_assign_machine(request: Request,
+                             machine_id: str = Form(...),
+                             customer_id: str = Form(""),
+                             admin: User = Depends(require_admin),
+                             db: Session = Depends(get_db)):
+    machine = db.get(Machine, machine_id)
+    if machine is None:
+        raise HTTPException(status_code=404, detail="Maschine nicht gefunden")
+    cid = (customer_id or "").strip()
+    if not cid:
+        machine.customer_id = None
+        db.commit()
+        flash(request, f"Maschine „{machine_id}“ ist jetzt intern (kein Kunde).",
+              "success")
+        return RedirectResponse("/customers", status_code=303)
+    customer = db.get(Customer, int(cid)) if cid.isdigit() else None
+    if customer is None:
+        flash(request, "Ungültiger Kunde für die Zuordnung.", "error")
+        return RedirectResponse("/customers", status_code=303)
+    machine.customer_id = customer.id
+    db.commit()
+    flash(request, f"Maschine „{machine_id}“ wurde „{customer.name}“ zugeordnet.",
+          "success")
+    return RedirectResponse("/customers", status_code=303)
+
+
+@app.post("/customers/{customer_id}/test-mail")
+def customers_test_mail(customer_id: int, request: Request,
+                        admin: User = Depends(require_admin),
+                        db: Session = Depends(get_db)):
+    customer = db.get(Customer, customer_id)
+    if customer is None:
+        raise HTTPException(status_code=404, detail="Kunde nicht gefunden")
+    result = mailer.send_customer_digest(db, customer, dry_run=False)
+    if result.get("sent"):
+        flash(request, f"Sammelbericht an „{customer.name}“ ({customer.email}) "
+                       "wurde versendet.", "success")
+    else:
+        flash(request, "Versand nicht möglich: "
+                       f"{result.get('error', 'unbekannter Fehler')}", "error")
+    return RedirectResponse("/customers", status_code=303)
+
+
+# ----------------------------------------------------------------------------
+# SMTP-Einstellungen (nur Admin)
+# ----------------------------------------------------------------------------
+@app.get("/settings/smtp", response_class=HTMLResponse)
+def smtp_settings_page(request: Request, admin: User = Depends(require_admin),
+                       db: Session = Depends(get_db)):
+    row = db.get(SmtpSettings, 1)
+    config = mailer.get_smtp_config(db)
+    # Passwort wird NIE ins Formular zurückgegeben; wir zeigen nur an, ob eines
+    # hinterlegt ist.
+    has_password = bool(row and (row.password_enc or "").strip())
+    return templates.TemplateResponse(request, "settings_smtp.html", _ctx(
+        request, admin.username,
+        row=row, config=config, has_password=has_password))
+
+
+@app.post("/settings/smtp")
+def smtp_settings_save(request: Request,
+                       host: str = Form(""),
+                       port: str = Form("587"),
+                       username: str = Form(""),
+                       password: str = Form(""),
+                       from_email: str = Form(""),
+                       from_name: str = Form("LogWatch Dashboard"),
+                       security: str = Form("starttls"),
+                       admin: User = Depends(require_admin),
+                       db: Session = Depends(get_db)):
+    if security not in ("starttls", "ssl", "none"):
+        security = "starttls"
+    try:
+        port_int = int(port)
+    except (ValueError, TypeError):
+        port_int = 587
+    row = db.get(SmtpSettings, 1)
+    if row is None:
+        row = SmtpSettings(id=1)
+        db.add(row)
+    row.host = host.strip()
+    row.port = port_int
+    row.username = username.strip()
+    row.from_email = from_email.strip()
+    row.from_name = from_name.strip() or "LogWatch Dashboard"
+    row.security = security
+    # Passwort nur überschreiben, wenn ein neues eingegeben wurde; Fernet-verschlüsselt.
+    if password:
+        row.password_enc = encrypt(password)
+    db.commit()
+    flash(request, "SMTP-Einstellungen wurden gespeichert.", "success")
+    return RedirectResponse("/settings/smtp", status_code=303)
+
+
+@app.post("/settings/smtp/test")
+def smtp_settings_test(request: Request,
+                       test_email: str = Form(...),
+                       admin: User = Depends(require_admin),
+                       db: Session = Depends(get_db)):
+    to = (test_email or "").strip()
+    if not _EMAIL_RE.match(to):
+        flash(request, "Bitte eine gültige Empfänger-Adresse für den Test angeben.",
+              "error")
+        return RedirectResponse("/settings/smtp", status_code=303)
+    ok, err = mailer.send_test_mail(db, to)
+    if ok:
+        flash(request, f"Test-Mail wurde an {to} versendet.", "success")
+    else:
+        flash(request, f"Test-Mail fehlgeschlagen: {err}", "error")
+    return RedirectResponse("/settings/smtp", status_code=303)
 
 
 # ----------------------------------------------------------------------------
@@ -775,6 +1121,13 @@ async def api_upload_report(
     db.add(report)
     db.commit()
     db.refresh(report)
+
+    # 7) Sofortige Fehler-Benachrichtigung (best effort) — darf die API-Antwort
+    # niemals beeinflussen; alle Fehler werden im Mailer selbst abgefangen.
+    try:
+        mailer.send_error_notification(db, report)
+    except Exception:  # pragma: no cover - doppelte Absicherung
+        logger.exception("Fehler-Benachrichtigung fehlgeschlagen")
 
     copy_warning = _machine_has_copy_warning(db, machine_id)
     return JSONResponse(

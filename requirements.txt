@@ -8,6 +8,7 @@ itsdangerous>=2.2.0
 bcrypt>=5.0.0
 python-dotenv>=1.2.4
 requests>=2.32.0
+cryptography>=42.0.0
 
 # Nur für Tests:
 # pytest>=7

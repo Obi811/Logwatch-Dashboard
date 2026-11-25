@@ -15,9 +15,11 @@
     <a href="/">Übersicht</a>
     <a href="/machines">Maschinen</a>
     <a href="/reports">Fehlerberichte</a>
-    <a href="/warnings">Warnungen</a>
+    {% if not is_kunde %}<a href="/warnings">Warnungen</a>{% endif %}
     <a href="/statistik">Statistik</a>
+    {% if is_admin %}<a href="/customers">Kunden</a>{% endif %}
     {% if is_admin %}<a href="/users">Benutzer</a>{% endif %}
+    {% if is_admin %}<a href="/settings/smtp">SMTP</a>{% endif %}
   </nav>
   <div class="userbox">
     <span class="uname">{{ user }}</span>

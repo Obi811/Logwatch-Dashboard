@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}SMTP-Einstellungen – LogWatch Dashboard{% endblock %}
+{% block content %}
+<h1>SMTP-Einstellungen</h1>
+<p class="muted">Konfiguration des Postausgangsservers für den E-Mail-Versand
+(Sammelberichte und Sofort-Fehlermeldungen). Das Passwort wird verschlüsselt
+gespeichert und niemals im Klartext angezeigt.</p>
+
+<section class="panel">
+  <h2>Aktuelle Quelle</h2>
+  <p class="muted">
+    {% if config.source == "db" %}
+      Aktive Konfiguration: <strong>in der Datenbank gespeichert</strong>.
+    {% elif config.source == "env" %}
+      Aktive Konfiguration: <strong>Umgebungsvariablen</strong> (SMTP_*). Beim
+      Speichern unten wird die Datenbank-Konfiguration verwendet.
+    {% else %}
+      Es ist <strong>keine</strong> SMTP-Konfiguration hinterlegt. Der Versand ist
+      deaktiviert, bis Host und Absender gespeichert wurden.
+    {% endif %}
+  </p>
+</section>
+
+<section class="panel">
+  <h2>Server-Konfiguration</h2>
+  <form class="userform" method="post" action="/settings/smtp" autocomplete="off">
+    <div class="formrow">
+      <label>Host
+        <input type="text" name="host" value="{{ row.host if row else '' }}"
+               placeholder="smtp.example.com" maxlength="255">
+      </label>
+      <label>Port
+        <input type="number" name="port" value="{{ row.port if row else 587 }}" min="1" max="65535">
+      </label>
+      <label>Sicherheit
+        <select name="security">
+          <option value="starttls"{% if not row or row.security == "starttls" %} selected{% endif %}>STARTTLS</option>
+          <option value="ssl"{% if row and row.security == "ssl" %} selected{% endif %}>SSL/TLS</option>
+          <option value="none"{% if row and row.security == "none" %} selected{% endif %}>Keine</option>
+        </select>
+      </label>
+    </div>
+    <div class="formrow">
+      <label>Benutzername
+        <input type="text" name="username" value="{{ row.username if row else '' }}"
+               autocomplete="off" maxlength="255">
+      </label>
+      <label>Passwort
+        <input type="password" name="password" autocomplete="new-password"
+               placeholder="{% if has_password %}•••••• (unverändert lassen){% else %}Passwort{% endif %}">
+      </label>
+    </div>
+    <div class="formrow">
+      <label>Absender-Adresse
+        <input type="email" name="from_email" value="{{ row.from_email if row else '' }}"
+               placeholder="logwatch@example.com" maxlength="255">
+      </label>
+      <label>Absender-Name
+        <input type="text" name="from_name"
+               value="{{ row.from_name if row else 'LogWatch Dashboard' }}" maxlength="200">
+      </label>
+    </div>
+    <button type="submit" class="btn primary">Einstellungen speichern</button>
+    <p class="hint">Das Passwort wird nur überschrieben, wenn das Feld ausgefüllt ist.
+      {% if has_password %}Aktuell ist ein Passwort hinterlegt.{% endif %}</p>
+  </form>
+</section>
+
+<section class="panel">
+  <h2>Test-Verbindung / Test-Mail</h2>
+  <p class="muted">Sendet mit der gespeicherten Konfiguration eine kurze Testmail.</p>
+  <form class="inline" method="post" action="/settings/smtp/test" autocomplete="off">
+    <input type="email" name="test_email" required placeholder="empfaenger@example.com">
+    <button type="submit" class="btn">Test-Mail senden</button>
+  </form>
+</section>
+{% endblock %}

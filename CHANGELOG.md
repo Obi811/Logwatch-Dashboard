@@ -8,6 +8,50 @@ und das Projekt folgt der [Semantischen Versionierung](https://semver.org/lang/d
 
 ## [Unveröffentlicht]
 ### Hinzugefügt
+- **Kundenverwaltung & E-Mail-Versand (SMTP):** Neues Admin-Modul zum Verwalten
+  von **Kunden** (`/customers`) und ein automatischer sowie sofortiger
+  E-Mail-Versand.
+  - **Datenmodell:** Neue Tabelle `customers` (Felder: `name`/Firma, `email`
+    – beide Pflicht –, `contact`/Ansprechpartner, `note`/Notiz, `notify_on_error`
+    [Standard an], `digest_interval` [`none`/`weekly`/`monthly`],
+    `last_digest_sent_at`, `created_at`). Neue Tabelle `smtp_settings` (eine Zeile;
+    Host, Port, Benutzer, **verschlüsseltes** Passwort `password_enc`,
+    Absenderadresse/-name, Sicherheit). Neue, rückwärtskompatible Spalten
+    `machines.customer_id` und `users.customer_id` (beide `ADD COLUMN IF NOT
+    EXISTS`, `ON DELETE SET NULL`). Maschinen ohne Kunde gelten als „intern".
+  - **Rolle `kunde`:** `users.role` kennt nun zusätzlich `kunde`. Ein Kunden-Login
+    ist an einen Kunden gebunden (über `users.customer_id`) und sieht
+    **ausschließlich** die Maschinen, Fehlerberichte und Statistik dieses Kunden
+    (serverseitiges Scoping aller Lese-Routen + REST-neutral). Keine Warnungen,
+    keine Benutzer-/Kunden-/SMTP-Verwaltung und keine Schreibaktionen
+    (Kommentar/Abschließen) – sonst Weiterleitung zur Startseite. Kunden-Logins
+    werden pragmatisch über das bestehende Formular „Benutzer anlegen" mit der
+    Rolle „Kunde" und Kundenauswahl erstellt.
+  - **Kundenverwaltung (nur Admin):** Anlegen/Bearbeiten/Löschen von Kunden,
+    E-Mail-Einstellungen (Intervall, Sofort-Mail), **Maschinen-Zuordnung** per
+    Dropdown und Button **„Test-Mail senden"** (sendet den Sammelbericht sofort).
+  - **SMTP-Konfiguration (nur Admin, `/settings/smtp`):** Host, Port, Benutzer,
+    Passwort, Absender, Sicherheit (STARTTLS/SSL/keine). Das Passwort wird
+    **Fernet-verschlüsselt** gespeichert (Schlüssel aus `SECRET_KEY` abgeleitet)
+    und **nie** im Klartext in DB-Ausgaben, Formular oder Logs gezeigt; das
+    Formular-Passwortfeld bleibt leer und überschreibt nur bei Eingabe. Fallback
+    auf `SMTP_*`-Umgebungsvariablen, falls in der DB nichts hinterlegt ist. Button
+    „Test-Mail senden".
+  - **E-Mail-Typen:** (1) **Sofort-Fehler-Mail** – beim Upload einer neuen
+    Meldung für eine Kundenmaschine mit `notify_on_error=true` (best effort; die
+    Ingestion/API-Antwort wird nie beeinträchtigt). (2) **Sammelbericht (Digest)**
+    – HTML-Mail pro Kunde mit Kennzahlen (Maschinen, Meldungen, offene) und
+    Aufschlüsselung je Maschine (Zeit, Maschine, Fehler, Status). Enthält
+    **keine** Kommentare. Versand robust über `smtplib` (STARTTLS/SSL/keine),
+    fehlertolerant und ohne Geheimnisse im Log.
+  - **Automatischer Versand:** Neues Kommando `python -m app.send_digests`
+    (`--dry-run`, `--customer-id`) prüft fällige Kunden
+    (wöchentlich ≥ 7 Tage / monatlich ≥ 28 Tage, Erstversand sofort) anhand von
+    `last_digest_sent_at` und ist **idempotent** (kein Doppelversand am selben
+    Tag). Dazu systemd-`oneshot`-Service + täglicher Timer in `deploy/`
+    (`logwatch-digests.service`/`.timer`); alternativ eine Cron-Zeile (siehe
+    README). **Kein** interner Scheduler.
+  - **Abhängigkeit:** `cryptography` (Fernet) ergänzt.
 - **Kommentarfunktion für Meldungen:** Jeder Fehlerbericht (Entität
   `ErrorReport`, im UI „Meldung") kann nun kommentiert werden. Auf der
   Detailseite einer Meldung (`/reports/{id}`) erscheinen alle Kommentare mit
