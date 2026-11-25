@@ -35,6 +35,23 @@ class Settings:
             os.environ.get("UPDATE_CHECK_ENABLED", "1").strip().lower()
             not in ("0", "false", "no", "off", "")
         )
+        # SMTP-Fallback aus der Umgebung. Die primäre Quelle ist die DB-Tabelle
+        # `smtp_settings` (über die Admin-UI pflegbar); ist dort nichts hinterlegt,
+        # greift diese Env-Konfiguration. Das Passwort steht hier IM KLARTEXT in der
+        # .env (Datei-Rechte beachten) – in der DB wird es verschlüsselt abgelegt.
+        self.smtp_host = os.environ.get("SMTP_HOST", "").strip()
+        try:
+            self.smtp_port = int(os.environ.get("SMTP_PORT", "587") or "587")
+        except (ValueError, TypeError):
+            self.smtp_port = 587
+        self.smtp_user = os.environ.get("SMTP_USER", "").strip()
+        self.smtp_password = os.environ.get("SMTP_PASSWORD", "")
+        self.smtp_from_email = os.environ.get("SMTP_FROM_EMAIL", "").strip()
+        self.smtp_from_name = os.environ.get("SMTP_FROM_NAME", "LogWatch Dashboard").strip()
+        # Transportverschlüsselung: "starttls" | "ssl" | "none".
+        sec = os.environ.get("SMTP_SECURITY", "starttls").strip().lower()
+        self.smtp_security = sec if sec in ("starttls", "ssl", "none") else "starttls"
+
         upload_dir = os.environ.get("UPLOAD_DIR", os.path.join(_PROJECT_ROOT, "data", "uploads"))
         if not os.path.isabs(upload_dir):
             upload_dir = os.path.join(_PROJECT_ROOT, upload_dir)

@@ -16,6 +16,7 @@ from app.auth import hash_password
 from app.db import Base, SessionLocal, engine
 from app.models import User  # noqa: F401 – sorgt für Tabellen-Registrierung
 from app.models import ErrorReport, HardwareFingerprint, Machine  # noqa: F401
+from app.models import Comment, Customer, SmtpSettings  # noqa: F401
 from app.settings import get_settings
 
 
@@ -34,6 +35,12 @@ def _ensure_columns() -> None:
         # Rollensystem: neue Spalte `role` an der Benutzer-Tabelle.
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(20) "
         "NOT NULL DEFAULT 'user'",
+        # Kundenverwaltung: Maschine <-> Kunde und Login <-> Kunde verknüpfen.
+        # Die Tabellen `customers` und `smtp_settings` werden von create_all()
+        # angelegt; hier nur die neuen Fremdschlüssel-Spalten an bestehenden
+        # Tabellen idempotent nachziehen (bestehende Zeilen bleiben NULL = "intern").
+        "ALTER TABLE machines ADD COLUMN IF NOT EXISTS customer_id INTEGER",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS customer_id INTEGER",
     ]
     with engine.begin() as conn:
         for stmt in statements:

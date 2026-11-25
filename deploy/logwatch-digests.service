@@ -1,0 +1,12 @@
+[Unit]
+Description=LogWatch Dashboard – Versand faelliger Kunden-Sammelberichte (Digests)
+After=network-online.target
+Wants=network-online.target
+# /home/ubuntu mountet spät im Boot – nie vor Vorhandensein der Projektdateien starten.
+RequiresMountsFor=/home/ubuntu
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/logwatch-dashboard
+ExecStart=/home/ubuntu/logwatch-dashboard/venv/bin/python -m app.send_digests
