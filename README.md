@@ -143,11 +143,15 @@ Ein Kunde bündelt Maschinen und ist Empfänger der E-Mail-Benachrichtigungen:
   Rechte"). Kunden, die sich **nicht** einloggen, brauchen nur den
   Kunden-Datensatz (reine E-Mail-Empfänger).
 
-> **Oberfläche:** Die Admin-Seiten (`/customers`, `/users`, `/settings/smtp`)
-> nutzen ein **zweispaltiges, responsives Layout** – das schmale Anlege- bzw.
-> Status-Panel steht links, die breiten Tabellen/Formulare rechts, sodass die
-> verfügbare Seitenbreite genutzt wird. Auf schmalen Viewports (Smartphone)
-> stapeln sich die Spalten sauber untereinander.
+> **Oberfläche:** Das **gesamte** Dashboard nutzt die verfügbare Seitenbreite
+> und ist durchgängig responsiv. Die Admin-Seiten (`/customers`, `/users`,
+> `/settings/smtp`) verwenden ein **zweispaltiges Layout** (`.admin-grid`) –
+> schmales Anlege-/Status-Panel links, breite Tabellen/Formulare rechts. Die
+> Detailseiten (Maschinen-/Fehlerbericht-Detail) nutzen analog ein 2-spaltiges
+> `.detail-grid` (Meta/Aktionen links, Hauptinhalt rechts). Breite Datentabellen
+> (Übersicht, Maschinen, Fehlerberichte, Warnungen, Statistik) stecken in einem
+> `.table-wrap`, der auf schmalen Viewports horizontal scrollt, statt das Layout
+> zu sprengen. Auf dem Smartphone stapeln sich alle Spalten sauber untereinander.
 
 ## E-Mail-Versand (SMTP)
 

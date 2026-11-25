@@ -20,6 +20,7 @@
 
 <h2>Neueste Fehlerberichte</h2>
 {% if recent %}
+<div class="table-wrap">
 <table class="grid">
   <thead><tr><th>Zeit (Eingang)</th><th>Maschine</th><th>Fehler</th><th>Status</th></tr></thead>
   <tbody>
@@ -34,6 +35,7 @@
   {% endfor %}
   </tbody>
 </table>
+</div>
 {% else %}
 <p class="muted">Noch keine Fehlerberichte vorhanden.</p>
 {% endif %}

@@ -146,6 +146,24 @@ form.inline select { padding: .35rem .5rem; border: 1px solid #cbd5e1; border-ra
    statt die Spalte/den Viewport zu sprengen (v. a. schmale Viewports). */
 .admin-main .panel { overflow-x: auto; }
 
+/* --- Wiederverwendbare Layout-Muster (dashboard-weit) --- */
+/* Breite Tabellen auf schmalen Viewports horizontal scrollbar machen,
+   ohne das Seitenlayout zu sprengen. */
+.table-wrap { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 1rem 0; }
+.table-wrap > table.grid { margin: 0; }
+
+/* Responsives 2-Spalten-Layout für Detailseiten: schmale Meta-/Aktionsspalte
+   links, breiter Hauptinhalt rechts. Stapelt auf schmalen Viewports. */
+.detail-grid { display: grid; grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+  gap: 1.25rem; align-items: start; }
+.detail-grid > .detail-aside, .detail-grid > .detail-main { min-width: 0; }
+.detail-grid .detail-aside > :first-child,
+.detail-grid .detail-main > :first-child { margin-top: 0; }
+.detail-aside table.kv { width: 100%; margin-top: 0; }
+.detail-aside .actionform { width: 100%; }
+.detail-aside .actionform input { min-width: 0; width: 100%; }
+@media (max-width: 880px) { .detail-grid { grid-template-columns: 1fr; gap: 0; } }
+
 /* --- Kommentare --- */
 .comment-list { list-style: none; padding: 0; margin: 1rem 0; display: flex;
   flex-direction: column; gap: .7rem; }
