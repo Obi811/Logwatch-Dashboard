@@ -8,6 +8,8 @@ Sofort-Benachrichtigungen bei neuen Fehlermeldungen ihrer Maschinen. Maschinen
 für einen Kunden wird in der <a href="/users">Benutzerverwaltung</a> über die Rolle
 „Kunde“ angelegt.</p>
 
+<div class="admin-grid">
+<div class="admin-aside">
 <section class="panel">
   <h2>Neuen Kunden anlegen</h2>
   <form class="userform" method="post" action="/customers/create" autocomplete="off">
@@ -41,7 +43,8 @@ für einen Kunden wird in der <a href="/users">Benutzerverwaltung</a> über die 
     <button type="submit" class="btn primary">Kunde anlegen</button>
   </form>
 </section>
-
+</div>
+<div class="admin-main">
 <section class="panel">
   <h2>Vorhandene Kunden ({{ rows|length }})</h2>
   {% if rows %}
@@ -147,4 +150,6 @@ für einen Kunden wird in der <a href="/users">Benutzerverwaltung</a> über die 
   <p class="muted">Noch keine Maschinen vorhanden.</p>
   {% endif %}
 </section>
+</div>
+</div>
 {% endblock %}

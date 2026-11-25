@@ -130,6 +130,17 @@ und das Projekt folgt der [Semantischen Versionierung](https://semver.org/lang/d
   Versionsabschnitt überführt, `VERSION` setzt und (mit `--push`) Tag/Commit auslöst.
 
 ### Geändert
+- **Layout der Admin-Seiten überarbeitet** (`/customers`, `/users`,
+  `/settings/smtp`): Die Seiten nutzten die verfügbare Breite nicht – alle
+  Inhalte lagen in einer schmalen linken Spalte, die rechte Bildschirmhälfte
+  blieb leer. Die Seiten verwenden jetzt ein **zweispaltiges, responsives
+  CSS-Grid** (`.admin-grid`): das schmale Anlege- bzw. Status-Panel links, die
+  breiten Tabellen/Formulare rechts. Auf schmalen Viewports (Smartphone, ≤ 880 px)
+  stapeln sich die Spalten sauber untereinander; breite Tabellen scrollen bei
+  Bedarf horizontal statt die Spalte zu sprengen. Die globale Container-Breite
+  (`.content`) wurde behutsam von 1100 px auf 1280 px erhöht. Rein visuell –
+  keine Änderung an Feldern, Formularen, Routen oder Datenmodell. Das Stylesheet
+  erhielt zur Cache-Umgehung einen Versions-Parameter.
 - Abhängigkeiten aktualisiert (Dependabot): u. a. `fastapi` (>=0.163.1),
   `uvicorn` (>=0.54.0), `sqlalchemy` (>=2.1.9), `psycopg` (>=3.3.9),
   `bcrypt` (>=5.0.0), `python-multipart` (>=0.0.34), `itsdangerous` (>=2.2.0),

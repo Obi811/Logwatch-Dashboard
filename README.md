@@ -143,6 +143,12 @@ Ein Kunde bündelt Maschinen und ist Empfänger der E-Mail-Benachrichtigungen:
   Rechte"). Kunden, die sich **nicht** einloggen, brauchen nur den
   Kunden-Datensatz (reine E-Mail-Empfänger).
 
+> **Oberfläche:** Die Admin-Seiten (`/customers`, `/users`, `/settings/smtp`)
+> nutzen ein **zweispaltiges, responsives Layout** – das schmale Anlege- bzw.
+> Status-Panel steht links, die breiten Tabellen/Formulare rechts, sodass die
+> verfügbare Seitenbreite genutzt wird. Auf schmalen Viewports (Smartphone)
+> stapeln sich die Spalten sauber untereinander.
+
 ## E-Mail-Versand (SMTP)
 
 Das Dashboard verschickt zwei Arten von E-Mails (HTML, deutsch):
