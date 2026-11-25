@@ -130,6 +130,16 @@ und das Projekt folgt der [Semantischen Versionierung](https://semver.org/lang/d
   Versionsabschnitt überführt, `VERSION` setzt und (mit `--push`) Tag/Commit auslöst.
 
 ### Geändert
+- **Navigationsleiste (Topbar) für Smartphones responsiv:** Die obere Leiste
+  quetschte auf schmalen Viewports (iPhone) alle Navigationslinks in eine
+  einzige Zeile, sodass die hinteren Links (Fehlerberichte, Warnungen,
+  Statistik, Kunden, Benutzer, SMTP) über den Bildschirmrand hinausliefen und
+  abgeschnitten wurden. Neu: Ab ≤ 820 px bricht die Topbar um – Marke und
+  Benutzerbereich (Name + „Abmelden") bleiben oben, die Navigationslinks
+  rutschen in eine eigene, bei Bedarf mehrzeilige Reihe darunter. Alle Links
+  bleiben sichtbar und antippbar; die Desktop-Ansicht bleibt unverändert
+  einzeilig. Rein visuell (CSS-`@media`-Regel), Cache-Buster auf `?v=20261125d`
+  erhöht.
 - **Dashboard-weite Layout-/Responsivitäts-Überarbeitung aller Seiten:** Nicht
   nur die Admin-Formulare, sondern das **gesamte** Dashboard nutzt nun die
   verfügbare Seitenbreite und stapelt auf dem Smartphone sauber. Zwei
