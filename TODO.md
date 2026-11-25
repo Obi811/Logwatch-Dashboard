@@ -59,3 +59,4 @@ Zum Abhaken einfach `[ ]` in `[x]` ändern. Neue Punkte unten anhängen.
 - [x] SMTP-Konfiguration im UI (`/settings/smtp`, nur Admin): Passwort Fernet-verschlüsselt (`password_enc`), nie im Klartext ausgegeben, Fallback auf `SMTP_*`-Env, Test-Mail
 - [x] E-Mail-Versand (HTML, deutsch): Sofort-Fehler-Mail beim Upload + Sammelbericht (Digest) je Kunde mit Kennzahlen und Aufschlüsselung je Maschine (ohne Kommentare)
 - [x] Automatischer Digest-Versand: Kommando `python -m app.send_digests` (idempotent, `--dry-run`/`--customer-id`) + systemd-Timer/-Service in `deploy/` sowie dokumentierte Cron-Zeile
+- [x] Layout der Admin-Seiten (`/customers`, `/users`, `/settings/smtp`): zweispaltiges, responsives CSS-Grid – nutzt die Seitenbreite (schmales Panel links, breite Tabellen/Formulare rechts), stapelt auf dem Smartphone sauber untereinander

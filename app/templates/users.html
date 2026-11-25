@@ -10,6 +10,8 @@ dessen Maschinen, Fehlerberichte und Statistik (keine Warnungen, Benutzer-, Kund
 SMTP-Verwaltung). Kunden-Logins werden nur über dieses Anlege-Formular (mit Kundenauswahl)
 erstellt.</p>
 
+<div class="admin-grid">
+<div class="admin-aside">
 <section class="panel">
   <h2>Neuen Benutzer anlegen</h2>
   <form class="userform" method="post" action="/users/create" autocomplete="off">
@@ -47,7 +49,8 @@ erstellt.</p>
       Benutzernamen: Buchstaben, Ziffern und <code>. _ @ + -</code></p>
   </form>
 </section>
-
+</div>
+<div class="admin-main">
 <section class="panel">
   <h2>Vorhandene Benutzer ({{ users|length }})</h2>
   <table class="grid">
@@ -97,4 +100,6 @@ erstellt.</p>
     </tbody>
   </table>
 </section>
+</div>
+</div>
 {% endblock %}
