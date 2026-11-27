@@ -8,6 +8,34 @@ und das Projekt folgt der [Semantischen Versionierung](https://semver.org/lang/d
 
 ## [Unveröffentlicht]
 ### Hinzugefügt
+- **Fehlercode-Katalog (admin-pflegbar) + zentrale Benachrichtigungssteuerung:**
+  Alle bekannten Maschinen-Fehlercodes (Format `S-FFFF-N`) sind nun zentral im
+  Dashboard hinterlegt; der Admin legt je Code fest, ob das Dashboard bei genau
+  diesem Fehler benachrichtigt / reagiert.
+  - **Datenmodell:** Neue Tabelle `error_codes` (`id`, `code` [eindeutig],
+    `severity`, `facility`, `index`, `text`, `facility_name`, `notify`
+    [Standard aus], `active` [Standard an], `created_at`) mit Indizes auf
+    `code` (unique), `facility`, `severity` und `notify`. Anlage über
+    `create_all`/`init_db.py` (rückwärtskompatibel).
+  - **Seed:** Idempotentes Befüllen aus `data/error_codes_seed.json` (2343 Codes:
+    2311 Fehler, 30 Warnungen, 2 Infos; 47 Facilities) direkt in `init_db.py`.
+    Es werden **nur fehlende** Codes angelegt – bestehende `notify`-Einstellungen
+    des Admins bleiben bei jedem erneuten Seed erhalten.
+  - **Admin-Seite `/error-codes` (nur Admin):** Liste aller Codes mit **Suche**
+    (Code oder Text), **Filter** (Schweregrad, Benachrichtigung an/aus) und
+    **Pagination** (50/Seite). Je Code: Inline-**Umschalter** für die
+    Benachrichtigung sowie Anlegen, Bearbeiten (Text/Facility/notify/aktiv) und
+    Löschen. Neuer Navigationspunkt „Fehlercodes" (nur für Admins).
+  - **Benachrichtigungslogik (rückwärtskompatibel):** `send_error_notification`
+    verknüpft den Sofort-Mail-Versand mit dem Katalog. Enthält ein Bericht einen
+    bekannten Code mit `notify=True` → Versand; enthält er ausschließlich bekannte
+    Codes mit `notify=False` → zentrale Unterdrückung; enthält er **keine**
+    bekannten Codes (reiner Freitext) → bisheriges Verhalten (allein das
+    Kunden-Flag `notify_on_error` entscheidet). Das Kunden-Flag bleibt in allen
+    Fällen zusätzliche Bedingung.
+  - **Tests:** 20 neue Tests (`tests/test_error_codes.py`) für RBAC, CRUD,
+    notify-Umschalter, Suche/Filter/Pagination und die dreistufige
+    Benachrichtigungslogik.
 - **Kundenverwaltung & E-Mail-Versand (SMTP):** Neues Admin-Modul zum Verwalten
   von **Kunden** (`/customers`) und ein automatischer sowie sofortiger
   E-Mail-Versand.

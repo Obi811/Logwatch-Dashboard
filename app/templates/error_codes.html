@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+{% block title %}Fehlercodes – LogWatch Dashboard{% endblock %}
+{% block content %}
+<h1>Fehlercode-Katalog</h1>
+<p class="muted">Hier sind alle bekannten Fehlercodes der Maschinen hinterlegt
+(Format <code>S-FFFF-N</code>). Über den Schalter <strong>Benachrichtigen</strong>
+legst du je Code fest, ob das Dashboard bei genau diesem Fehler sofort reagiert bzw.
+benachrichtigt. Die Erkennung läuft zentral im Dashboard – der Client überträgt nur.
+Aktuell: <strong>{{ total }}</strong> Codes, davon
+<strong>{{ notify_count }}</strong> mit aktivierter Benachrichtigung.</p>
+
+<div class="admin-grid">
+<div class="admin-aside">
+<section class="panel">
+  <h2>Neuen Code anlegen</h2>
+  <form class="userform" method="post" action="/error-codes/create" autocomplete="off">
+    <div class="formrow">
+      <label>Fehlercode
+        <input type="text" name="code" required maxlength="32" placeholder="z. B. 3-2048-4097">
+      </label>
+      <label>Beschreibung
+        <input type="text" name="text" maxlength="500" placeholder="z. B. DLL nicht gefunden!">
+      </label>
+      <label>Facility-Name (optional)
+        <input type="text" name="facility_name" maxlength="100" placeholder="z. B. FAC_USERDEFINED">
+      </label>
+    </div>
+    <div class="formrow">
+      <label class="checkbox">
+        <input type="checkbox" name="notify" value="1">
+        Benachrichtigen bei diesem Fehler
+      </label>
+      <label class="checkbox">
+        <input type="checkbox" name="active" value="1" checked>
+        Aktiv
+      </label>
+    </div>
+    <button type="submit" class="btn primary">Code anlegen</button>
+  </form>
+</section>
+
+<section class="panel">
+  <h2>Suche &amp; Filter</h2>
+  <form class="userform" method="get" action="/error-codes">
+    <div class="formrow">
+      <label>Suche (Code oder Text)
+        <input type="text" name="q" value="{{ q }}" maxlength="100" placeholder="z. B. 2048 oder DLL">
+      </label>
+      <label>Schweregrad
+        <select name="severity">
+          <option value=""{% if not severity %} selected{% endif %}>Alle</option>
+          <option value="3"{% if severity == "3" %} selected{% endif %}>Fehler</option>
+          <option value="2"{% if severity == "2" %} selected{% endif %}>Warnung</option>
+          <option value="1"{% if severity == "1" %} selected{% endif %}>Info</option>
+        </select>
+      </label>
+      <label>Benachrichtigung
+        <select name="notify">
+          <option value=""{% if not notify %} selected{% endif %}>Alle</option>
+          <option value="on"{% if notify == "on" %} selected{% endif %}>Nur aktiviert</option>
+          <option value="off"{% if notify == "off" %} selected{% endif %}>Nur deaktiviert</option>
+        </select>
+      </label>
+    </div>
+    <button type="submit" class="btn small">Filtern</button>
+    <a class="btn small" href="/error-codes">Zurücksetzen</a>
+  </form>
+</section>
+</div>
+
+<div class="admin-main">
+<section class="panel">
+  <h2>Fehlercodes ({{ total }})</h2>
+  {% if codes %}
+  <div class="table-wrap">
+  <table class="grid">
+    <thead>
+      <tr><th>Code</th><th>Schweregrad</th><th>Facility</th><th>Beschreibung</th>
+          <th>Benachrichtigen</th><th>Aktiv</th><th>Aktionen</th></tr>
+    </thead>
+    <tbody>
+    {% for ec in codes %}
+      <tr>
+        <td><code>{{ ec.code }}</code></td>
+        <td>{{ ec.severity_label }}</td>
+        <td>{{ ec.facility_name or "—" }}{% if ec.facility is not none %}<br><span class="muted">{{ ec.facility }}</span>{% endif %}</td>
+        <td>{{ ec.text or "—" }}</td>
+        <td>
+          <form class="inline" method="post" action="/error-codes/{{ ec.id }}/toggle-notify">
+            <button type="submit" class="btn small{% if ec.notify %} primary{% endif %}">
+              {% if ec.notify %}an{% else %}aus{% endif %}
+            </button>
+          </form>
+        </td>
+        <td>{% if ec.active %}<span class="badge">ja</span>{% else %}nein{% endif %}</td>
+        <td>
+          <details>
+            <summary class="btn small">Bearbeiten</summary>
+            <form class="userform" method="post" action="/error-codes/{{ ec.id }}/edit" autocomplete="off">
+              <div class="formrow">
+                <label>Beschreibung
+                  <input type="text" name="text" value="{{ ec.text or '' }}" maxlength="500">
+                </label>
+                <label>Facility-Name
+                  <input type="text" name="facility_name" value="{{ ec.facility_name or '' }}" maxlength="100">
+                </label>
+              </div>
+              <div class="formrow">
+                <label class="checkbox">
+                  <input type="checkbox" name="notify" value="1"{% if ec.notify %} checked{% endif %}>
+                  Benachrichtigen
+                </label>
+                <label class="checkbox">
+                  <input type="checkbox" name="active" value="1"{% if ec.active %} checked{% endif %}>
+                  Aktiv
+                </label>
+              </div>
+              <button type="submit" class="btn small">Speichern</button>
+            </form>
+          </details>
+          <form class="inline" method="post" action="/error-codes/{{ ec.id }}/delete"
+                onsubmit="return confirm('Fehlercode „{{ ec.code }}“ wirklich löschen?');">
+            <button type="submit" class="btn small danger">Löschen</button>
+          </form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+
+  {% if page_count > 1 %}
+  <nav class="pagination">
+    {% set qs = "q=" ~ q ~ "&severity=" ~ severity ~ "&notify=" ~ notify %}
+    {% if page > 1 %}
+      <a class="btn small" href="/error-codes?{{ qs }}&page={{ page - 1 }}">← Zurück</a>
+    {% endif %}
+    <span class="muted">Seite {{ page }} von {{ page_count }}</span>
+    {% if page < page_count %}
+      <a class="btn small" href="/error-codes?{{ qs }}&page={{ page + 1 }}">Weiter →</a>
+    {% endif %}
+  </nav>
+  {% endif %}
+  {% else %}
+  <p class="muted">Keine Fehlercodes gefunden{% if q or severity or notify %} (Filter aktiv){% endif %}.</p>
+  {% endif %}
+</section>
+</div>
+</div>
+{% endblock %}

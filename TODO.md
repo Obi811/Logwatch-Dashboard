@@ -12,6 +12,7 @@ Zum Abhaken einfach `[ ]` in `[x]` ändern. Neue Punkte unten anhängen.
 - [ ] Self-Update/Deploy-Knopf (nur sinnvoll bei eigenem Server mit SSH/systemd)
 - [ ] E-Mail-Versand im Windows-Client entfernen (Zentralisierung im Dashboard), sobald der Dashboard-SMTP-Versand live verifiziert ist
 - [ ] Mehrere E-Mail-Empfänger pro Kunde (aktuell genau eine Adresse je Kunde)
+- [ ] Client-seitige Fehlererkennung deaktivieren (Client überträgt nur noch ins Dashboard; die Erkennung/Benachrichtigung läuft jetzt zentral über den Fehlercode-Katalog)
 - [ ] 
 - [ ] 
 
@@ -58,6 +59,7 @@ Zum Abhaken einfach `[ ]` in `[x]` ändern. Neue Punkte unten anhängen.
 - [x] Rolle `kunde` + Kunden-Login (`users.customer_id`): serverseitiges Scoping aller Lese-Routen, keine Schreibaktionen/Verwaltung, 404 bei fremden Maschinen/Meldungen
 - [x] SMTP-Konfiguration im UI (`/settings/smtp`, nur Admin): Passwort Fernet-verschlüsselt (`password_enc`), nie im Klartext ausgegeben, Fallback auf `SMTP_*`-Env, Test-Mail
 - [x] E-Mail-Versand (HTML, deutsch): Sofort-Fehler-Mail beim Upload + Sammelbericht (Digest) je Kunde mit Kennzahlen und Aufschlüsselung je Maschine (ohne Kommentare)
+- [x] Fehlercode-Katalog (`/error-codes`, nur Admin): Tabelle `error_codes` + idempotenter Seed aus `data/error_codes_seed.json` (2343 Codes), Suche/Filter/Pagination, Anlegen/Bearbeiten/Löschen, Inline-notify-Umschalter; Sofort-Benachrichtigung je Fehlercode über das `notify`-Flag steuerbar (rückwärtskompatibel)
 - [x] Automatischer Digest-Versand: Kommando `python -m app.send_digests` (idempotent, `--dry-run`/`--customer-id`) + systemd-Timer/-Service in `deploy/` sowie dokumentierte Cron-Zeile
 - [x] Layout der Admin-Seiten (`/customers`, `/users`, `/settings/smtp`): zweispaltiges, responsives CSS-Grid – nutzt die Seitenbreite (schmales Panel links, breite Tabellen/Formulare rechts), stapelt auf dem Smartphone sauber untereinander
 - [x] Dashboard-weites Layout aller Seiten: wiederverwendbare Muster `.table-wrap` (breite Tabellen scrollen horizontal statt zu brechen – Übersicht, Maschinen, Fehlerberichte, Warnungen, Statistik) und `.detail-grid` (2-spaltiges Detail-Layout für Maschinen-/Bericht-Detail, stapelt ≤ 880 px) – nutzt die volle Breite auf Desktop, sauber responsiv auf dem Smartphone

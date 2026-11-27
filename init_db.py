@@ -8,6 +8,8 @@ Mehrfaches Ausführen ist unschädlich.
 """
 from __future__ import annotations
 
+import json
+import os
 import sys
 
 from sqlalchemy import select, text
@@ -16,8 +18,12 @@ from app.auth import hash_password
 from app.db import Base, SessionLocal, engine
 from app.models import User  # noqa: F401 – sorgt für Tabellen-Registrierung
 from app.models import ErrorReport, HardwareFingerprint, Machine  # noqa: F401
-from app.models import Comment, Customer, SmtpSettings  # noqa: F401
+from app.models import Comment, Customer, ErrorCode, SmtpSettings  # noqa: F401
 from app.settings import get_settings
+
+# Pfad zur aufbereiteten Seed-Datei des Fehlercode-Katalogs (relativ zum Repo-Root).
+_SEED_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "data", "error_codes_seed.json")
 
 
 def _ensure_columns() -> None:
@@ -76,6 +82,57 @@ def _ensure_admin_role() -> None:
         db.close()
 
 
+def _seed_error_codes() -> None:
+    """Befüllt den Fehlercode-Katalog idempotent aus ``data/error_codes_seed.json``.
+
+    Es werden NUR Codes angelegt, die noch nicht in der Tabelle vorhanden sind.
+    Bereits vorhandene Einträge werden NICHT verändert – damit bleiben insbesondere
+    die vom Admin gesetzten ``notify``-Flags bei jedem erneuten Seed erhalten.
+    Fehlt die Seed-Datei, passiert nichts (kein Abbruch).
+    """
+    if not os.path.exists(_SEED_PATH):
+        print(f"Hinweis: Seed-Datei {_SEED_PATH} nicht gefunden – überspringe Seed.")
+        return
+    try:
+        with open(_SEED_PATH, encoding="utf-8") as fh:
+            entries = json.load(fh)
+    except (OSError, ValueError) as exc:
+        print(f"WARNUNG: Fehlercode-Seed konnte nicht gelesen werden: {exc}",
+              file=sys.stderr)
+        return
+
+    db = SessionLocal()
+    try:
+        existing = set(db.execute(select(ErrorCode.code)).scalars().all())
+        new_rows = []
+        seen: set[str] = set()
+        for e in entries:
+            code = str(e.get("code", "")).strip()
+            if not code or code in existing or code in seen:
+                continue
+            seen.add(code)
+            new_rows.append(ErrorCode(
+                code=code,
+                severity=e.get("severity"),
+                facility=e.get("facility"),
+                idx=e.get("index"),
+                text=(e.get("text") or ""),
+                facility_name=(e.get("facility_name") or ""),
+                notify=False,
+                active=True,
+            ))
+        if new_rows:
+            db.bulk_save_objects(new_rows)
+            db.commit()
+            print(f"Fehlercode-Katalog: {len(new_rows)} neue(r) Code(s) angelegt "
+                  f"(vorher {len(existing)}).")
+        else:
+            print(f"Fehlercode-Katalog ist aktuell ({len(existing)} Codes, "
+                  "keine neuen).")
+    finally:
+        db.close()
+
+
 def main() -> int:
     settings = get_settings()
     if not settings.database_url:
@@ -87,6 +144,9 @@ def main() -> int:
     _ensure_columns()
     _ensure_admin_role()
     print("Schema ist aktuell.")
+
+    # Fehlercode-Katalog idempotent befüllen (bewahrt bestehende notify-Flags).
+    _seed_error_codes()
 
     db = SessionLocal()
     try:
