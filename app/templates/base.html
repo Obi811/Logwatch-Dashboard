@@ -18,6 +18,7 @@
     {% if not is_kunde %}<a href="/warnings">Warnungen</a>{% endif %}
     <a href="/statistik">Statistik</a>
     {% if is_admin %}<a href="/customers">Kunden</a>{% endif %}
+    {% if is_admin %}<a href="/error-codes">Fehlercodes</a>{% endif %}
     {% if is_admin %}<a href="/users">Benutzer</a>{% endif %}
     {% if is_admin %}<a href="/settings/smtp">SMTP</a>{% endif %}
   </nav>

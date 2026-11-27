@@ -86,6 +86,11 @@ die Fehler-Historie, mögliche Raubkopien und Auswertungen.
   `error_lines`, `error_count`, `log_filename`/`log_path`.
 - `comments` – Kommentare an einem Fehlerbericht; Fremdschlüssel auf
   `error_reports` und `users` (Kaskaden-Löschung), mit `body` und `created_at`.
+- `error_codes` – admin-pflegbarer Fehlercode-Katalog: `code` (Format
+  `S-FFFF-N`, eindeutig), zerlegte Segmente `severity`/`facility`/`index`,
+  `text` (Beschreibung), `facility_name`, `notify` (Dashboard benachrichtigt bei
+  diesem Fehler – Standard aus), `active`, `created_at`. Wird aus
+  `data/error_codes_seed.json` befüllt (idempotent, siehe `init_db.py`).
 
 ## Rollen & Rechte
 
@@ -156,6 +161,36 @@ Ein Kunde bündelt Maschinen und ist Empfänger der E-Mail-Benachrichtigungen:
 > bricht sie um – Marke und Benutzerbereich bleiben oben, die Navigationslinks
 > rutschen in eine eigene, mehrzeilige Reihe darunter, statt über den
 > Bildschirmrand hinaus abgeschnitten zu werden.
+
+## Fehlercode-Katalog
+
+Alle bekannten Maschinen-Fehlercodes (Format `S-FFFF-N`: Schweregrad – Facility –
+Index) sind zentral im Dashboard hinterlegt und **vom Admin pflegbar** unter
+`/error-codes` (Nav-Punkt „Fehlercodes", nur Admins). Pro Code steuert das Flag
+**`notify`**, ob das Dashboard bei genau diesem Fehler benachrichtigt/reagiert.
+
+- **Liste** mit **Suche** (Code oder Text), **Filter** (Schweregrad; Benachrichtigung
+  an/aus) und **Pagination** (50 pro Seite).
+- Je Code: Inline-**Umschalter** für die Benachrichtigung sowie **Anlegen**,
+  **Bearbeiten** (Text, Facility-Name, `notify`, `active`) und **Löschen**.
+- **Seed:** Der Katalog wird aus `data/error_codes_seed.json` (2343 Codes)
+  **idempotent** über `init_db.py` befüllt. Es werden nur fehlende Codes angelegt –
+  **bestehende `notify`-Einstellungen bleiben beim erneuten Seed erhalten**, sodass
+  Admin-Änderungen nicht überschrieben werden.
+
+**Zusammenspiel mit der Sofort-Benachrichtigung** (siehe unten): Beim Upload eines
+Berichts werden aus den Roh-Fehlerzeilen (`error_lines`) Code-Token `S-FFFF-N`
+extrahiert und gegen den Katalog geprüft:
+
+1. Mindestens ein bekannter Code mit `notify=True` → **senden**.
+2. Ausschließlich bekannte Codes mit `notify=False` → **zentral unterdrücken**
+   (auch wenn der Kunde `notify_on_error=True` hätte).
+3. **Keine** bekannten Codes (reiner Freitext) → **bisheriges Verhalten**, d.h.
+   allein das Kunden-Flag `notify_on_error` entscheidet (rückwärtskompatibel).
+
+Das Kunden-Flag `notify_on_error` bleibt in allen Fällen zusätzliche Bedingung. So
+läuft die Fehlererkennung zentral im Dashboard – der Windows-Client muss nur noch
+übertragen und könnte seine eigene Erkennung künftig abschalten.
 
 ## E-Mail-Versand (SMTP)
 

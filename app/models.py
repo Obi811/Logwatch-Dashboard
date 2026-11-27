@@ -42,6 +42,15 @@ DIGEST_WEEKLY = "weekly"
 DIGEST_MONTHLY = "monthly"
 DIGEST_INTERVALS = (DIGEST_NONE, DIGEST_WEEKLY, DIGEST_MONTHLY)
 
+# Schweregrade der Maschinen-Fehlercodes (erstes Segment des Codes "S-FFFF-N").
+#  3 = Fehler, 2 = Warnung, 1 = Info. Dient nur der Anzeige/Filterung.
+SEVERITY_LABELS = {3: "Fehler", 2: "Warnung", 1: "Info"}
+
+
+def severity_label(severity: int | None) -> str:
+    """Menschlich lesbares Label eines Schweregrads (Fallback: "Unbekannt")."""
+    return SEVERITY_LABELS.get(severity, "Unbekannt")
+
 
 class User(Base):
     """Interner Dashboard-Benutzer (Admin/Mitarbeiter) oder Kunden-Login."""
@@ -230,3 +239,47 @@ class Comment(Base):
 
     report: Mapped["ErrorReport"] = relationship(back_populates="comments")
     author: Mapped["User"] = relationship()
+
+
+class ErrorCode(Base):
+    """Ein bekannter Maschinen-Fehlercode aus dem admin-pflegbaren Katalog.
+
+    Der Code hat die Form ``S-FFFF-N`` (S = Schweregrad, FFFF = Facility,
+    N = Index). Über das ``notify``-Flag steuert der Admin je Code, ob das
+    Dashboard bei genau diesem Fehler sofort benachrichtigt / reagiert.
+    Der Katalog wird aus ``data/error_codes_seed.json`` befüllt (idempotent,
+    siehe ``init_db.py``); Admin-Änderungen am ``notify``-Flag bleiben beim
+    erneuten Seed erhalten.
+    """
+    __tablename__ = "error_codes"
+    __table_args__ = (
+        Index("ix_errorcode_facility", "facility"),
+        Index("ix_errorcode_severity", "severity"),
+        Index("ix_errorcode_notify", "notify"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    # Voller Fehlercode "S-FFFF-N" – eindeutig.
+    code: Mapped[str] = mapped_column(String(32), unique=True, nullable=False)
+    # Zerlegte Segmente (für Filter/Anzeige).
+    severity: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    facility: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # ``index`` ist in SQL ein Schlüsselwort – Attribut heißt ``idx``, Spalte "index".
+    idx: Mapped[int | None] = mapped_column("index", Integer, nullable=True)
+    # Beschreibender Text (deutsch).
+    text: Mapped[str] = mapped_column(Text, default="", server_default="")
+    # Facility-Name (z.B. "FAC_USERDEFINED").
+    facility_name: Mapped[str] = mapped_column(String(100), default="", server_default="")
+
+    # Kern-Flag: Benachrichtigt/reagiert das Dashboard bei diesem Fehler?
+    notify: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false")
+    # Ist der Katalogeintrag aktiv (soft-delete / ausblenden ohne Löschen)?
+    active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow)
+
+    @property
+    def severity_label(self) -> str:
+        return severity_label(self.severity)

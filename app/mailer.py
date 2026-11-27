@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import html
 import logging
+import re
 import smtplib
 import ssl
 from dataclasses import dataclass, field
@@ -31,7 +32,7 @@ from sqlalchemy.orm import Session
 from .crypto import decrypt
 from .models import (
     DIGEST_MONTHLY, DIGEST_WEEKLY, STATUS_OPEN,
-    Customer, ErrorReport, Machine, SmtpSettings,
+    Customer, ErrorCode, ErrorReport, Machine, SmtpSettings,
 )
 from .settings import get_settings
 
@@ -398,12 +399,48 @@ def send_test_mail(db: Session, to_email: str) -> Tuple[bool, str]:
     return send_mail(config, to_email, "LogWatch Dashboard – SMTP-Test", body)
 
 
+# Fehlercode-Token der Form "S-FFFF-N" in Roh-Fehlerzeilen erkennen.
+_ERROR_CODE_RE = re.compile(r"\b\d+-\d+-\d+\b")
+
+
+def _catalog_notify_decision(db: Session, report: ErrorReport) -> str:
+    """Entscheidet anhand des Fehlercode-Katalogs über die Benachrichtigung.
+
+    Liefert einen von drei Werten:
+      * ``"send"``     – der Bericht enthält mindestens einen bekannten Katalog-Code
+                         mit ``notify=True`` → Dashboard soll benachrichtigen.
+      * ``"suppress"`` – der Bericht enthält ausschließlich bekannte Katalog-Codes,
+                         die ALLE ``notify=False`` haben → zentral unterdrücken.
+      * ``"unknown"``  – der Bericht enthält KEINE bekannten Katalog-Codes (reiner
+                         Freitext) → alte Logik entscheidet (rückwärtskompatibel).
+    """
+    tokens = set(_ERROR_CODE_RE.findall(report.error_lines or ""))
+    if not tokens:
+        return "unknown"
+    known = db.execute(
+        select(ErrorCode.notify).where(ErrorCode.code.in_(tokens))
+    ).scalars().all()
+    if not known:
+        return "unknown"
+    return "send" if any(known) else "suppress"
+
+
 def send_error_notification(db: Session, report: ErrorReport) -> bool:
     """Best-effort Sofort-Mail bei neuem Fehler einer Kundenmaschine.
 
-    Sendet nur, wenn die Maschine einem Kunden mit ``notify_on_error=True``
-    zugeordnet ist und eine SMTP-Konfiguration vorhanden ist. Wirft NIE eine
-    Exception (Ingestion darf nicht beeinträchtigt werden).
+    Zwei Bedingungen müssen erfüllt sein: (1) die Maschine ist einem Kunden mit
+    ``notify_on_error=True`` zugeordnet und SMTP ist konfiguriert, und (2) der
+    Fehlercode-Katalog erlaubt die Benachrichtigung für diesen Bericht.
+
+    Katalog-Logik (rückwärtskompatibel, siehe ``_catalog_notify_decision``):
+      * Enthält der Bericht einen bekannten Code mit ``notify=True`` → senden.
+      * Enthält er ausschließlich bekannte Codes mit ``notify=False`` → zentral
+        unterdrücken (auch wenn der Kunde ``notify_on_error=True`` hätte).
+      * Enthält er keine bekannten Codes (reiner Freitext) → altes Verhalten,
+        d.h. allein das Kunden-Flag ``notify_on_error`` entscheidet. So bleiben
+        bestehende Abläufe/Tests unverändert.
+
+    Wirft NIE eine Exception (Ingestion darf nicht beeinträchtigt werden).
     """
     try:
         machine = db.get(Machine, report.machine_id)
@@ -411,6 +448,13 @@ def send_error_notification(db: Session, report: ErrorReport) -> bool:
             return False
         customer = db.get(Customer, machine.customer_id)
         if customer is None or not customer.notify_on_error:
+            return False
+        # Zentrale Katalog-Steuerung: bekannte Codes mit notify=False unterdrücken,
+        # bekannte Codes mit notify=True erzwingen den Versand (Kunden-Flag bleibt
+        # zusätzliche Bedingung, s.o.). Reiner Freitext → altes Verhalten.
+        if _catalog_notify_decision(db, report) == "suppress":
+            logger.info("Sofort-Mail unterdrückt (Katalog: notify=False für alle "
+                        "erkannten Codes), Bericht %s.", report.id)
             return False
         if not (customer.email or "").strip():
             return False

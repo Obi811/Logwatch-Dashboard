@@ -34,7 +34,8 @@ from . import mailer
 from .models import (
     DIGEST_INTERVALS, DIGEST_NONE, ROLE_ADMIN, ROLE_KUNDE, ROLE_USER, ROLES,
     STATUS_CLOSED, STATUS_OPEN,
-    Comment, Customer, ErrorReport, HardwareFingerprint, Machine, SmtpSettings, User,
+    Comment, Customer, ErrorCode, ErrorReport, HardwareFingerprint, Machine,
+    SmtpSettings, User,
 )
 from .settings import get_settings
 from .version_check import cached_update_check
@@ -934,6 +935,157 @@ def customers_test_mail(customer_id: int, request: Request,
         flash(request, "Versand nicht möglich: "
                        f"{result.get('error', 'unbekannter Fehler')}", "error")
     return RedirectResponse("/customers", status_code=303)
+
+
+# ----------------------------------------------------------------------------
+# Fehlercode-Katalog (nur Admin)
+# ----------------------------------------------------------------------------
+# Regex für Fehlercode-Token der Form "S-FFFF-N" (S/FFFF/N = Dezimalzahlen).
+_ERROR_CODE_RE = re.compile(r"\b\d+-\d+-\d+\b")
+
+# Seitengröße der Katalog-Liste (Pagination).
+_ERROR_CODE_PAGE_SIZE = 50
+
+
+@app.get("/error-codes", response_class=HTMLResponse)
+def error_codes_list(request: Request, admin: User = Depends(require_admin),
+                     db: Session = Depends(get_db),
+                     q: str = "", severity: str = "", notify: str = "",
+                     page: int = 1):
+    """Admin-Liste des Fehlercode-Katalogs mit Suche, Filter und Pagination."""
+    query = select(ErrorCode)
+
+    search = (q or "").strip()
+    if search:
+        like = f"%{search}%"
+        query = query.where(ErrorCode.code.ilike(like) | ErrorCode.text.ilike(like))
+
+    sev = (severity or "").strip()
+    if sev in ("1", "2", "3"):
+        query = query.where(ErrorCode.severity == int(sev))
+
+    notify_filter = (notify or "").strip()
+    if notify_filter == "on":
+        query = query.where(ErrorCode.notify.is_(True))
+    elif notify_filter == "off":
+        query = query.where(ErrorCode.notify.is_(False))
+
+    total = db.scalar(
+        select(func.count()).select_from(query.subquery())) or 0
+
+    try:
+        page = max(1, int(page))
+    except (ValueError, TypeError):
+        page = 1
+    page_count = max(1, (total + _ERROR_CODE_PAGE_SIZE - 1) // _ERROR_CODE_PAGE_SIZE)
+    if page > page_count:
+        page = page_count
+    offset = (page - 1) * _ERROR_CODE_PAGE_SIZE
+
+    codes = db.execute(
+        query.order_by(ErrorCode.code).offset(offset).limit(_ERROR_CODE_PAGE_SIZE)
+    ).scalars().all()
+
+    notify_count = db.scalar(
+        select(func.count(ErrorCode.id)).where(ErrorCode.notify.is_(True))) or 0
+
+    return templates.TemplateResponse(request, "error_codes.html", _ctx(
+        request, admin.username, codes=codes, total=total, notify_count=notify_count,
+        q=search, severity=sev, notify=notify_filter,
+        page=page, page_count=page_count, page_size=_ERROR_CODE_PAGE_SIZE))
+
+
+def _error_codes_redirect(request: Request) -> RedirectResponse:
+    """Leitet nach einer Änderung zurück zur Liste und behält die Filter/Seite bei."""
+    ref = request.headers.get("referer")
+    if ref and "/error-codes" in ref:
+        return RedirectResponse(ref, status_code=303)
+    return RedirectResponse("/error-codes", status_code=303)
+
+
+def _parse_code_segments(code: str) -> tuple[int | None, int | None, int | None]:
+    """Zerlegt einen Code "S-FFFF-N" in (severity, facility, index). Fehlertolerant."""
+    parts = code.split("-")
+    if len(parts) == 3 and all(p.isdigit() for p in parts):
+        return int(parts[0]), int(parts[1]), int(parts[2])
+    return None, None, None
+
+
+@app.post("/error-codes/create")
+def error_codes_create(request: Request,
+                       code: str = Form(...),
+                       text: str = Form(""),
+                       facility_name: str = Form(""),
+                       notify: str = Form(""),
+                       active: str = Form(""),
+                       admin: User = Depends(require_admin),
+                       db: Session = Depends(get_db)):
+    code = (code or "").strip()
+    if not code:
+        flash(request, "Bitte einen Fehlercode angeben.", "error")
+        return RedirectResponse("/error-codes", status_code=303)
+    existing = db.scalar(select(ErrorCode).where(ErrorCode.code == code))
+    if existing is not None:
+        flash(request, f"Der Fehlercode „{code}“ existiert bereits.", "error")
+        return RedirectResponse("/error-codes", status_code=303)
+    sev, fac, idx = _parse_code_segments(code)
+    db.add(ErrorCode(
+        code=code, severity=sev, facility=fac, idx=idx,
+        text=(text or "").strip(), facility_name=(facility_name or "").strip(),
+        notify=bool(notify), active=bool(active),
+    ))
+    db.commit()
+    flash(request, f"Fehlercode „{code}“ wurde angelegt.", "success")
+    return RedirectResponse("/error-codes", status_code=303)
+
+
+@app.post("/error-codes/{code_id}/edit")
+def error_codes_edit(code_id: int, request: Request,
+                     text: str = Form(""),
+                     facility_name: str = Form(""),
+                     notify: str = Form(""),
+                     active: str = Form(""),
+                     admin: User = Depends(require_admin),
+                     db: Session = Depends(get_db)):
+    ec = db.get(ErrorCode, code_id)
+    if ec is None:
+        raise HTTPException(status_code=404, detail="Fehlercode nicht gefunden")
+    ec.text = (text or "").strip()
+    ec.facility_name = (facility_name or "").strip()
+    ec.notify = bool(notify)
+    ec.active = bool(active)
+    db.commit()
+    flash(request, f"Fehlercode „{ec.code}“ wurde aktualisiert.", "success")
+    return _error_codes_redirect(request)
+
+
+@app.post("/error-codes/{code_id}/toggle-notify")
+def error_codes_toggle_notify(code_id: int, request: Request,
+                              admin: User = Depends(require_admin),
+                              db: Session = Depends(get_db)):
+    """Schaltet das notify-Flag eines Codes um (Inline-Umschalter in der Liste)."""
+    ec = db.get(ErrorCode, code_id)
+    if ec is None:
+        raise HTTPException(status_code=404, detail="Fehlercode nicht gefunden")
+    ec.notify = not ec.notify
+    db.commit()
+    state = "aktiviert" if ec.notify else "deaktiviert"
+    flash(request, f"Benachrichtigung für „{ec.code}“ {state}.", "success")
+    return _error_codes_redirect(request)
+
+
+@app.post("/error-codes/{code_id}/delete")
+def error_codes_delete(code_id: int, request: Request,
+                       admin: User = Depends(require_admin),
+                       db: Session = Depends(get_db)):
+    ec = db.get(ErrorCode, code_id)
+    if ec is None:
+        raise HTTPException(status_code=404, detail="Fehlercode nicht gefunden")
+    code = ec.code
+    db.delete(ec)
+    db.commit()
+    flash(request, f"Fehlercode „{code}“ wurde gelöscht.", "success")
+    return _error_codes_redirect(request)
 
 
 # ----------------------------------------------------------------------------
